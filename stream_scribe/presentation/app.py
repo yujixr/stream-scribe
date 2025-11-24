@@ -169,52 +169,59 @@ class StreamScribeApp:
 
     # ========== セッション管理 ==========
 
-    def _cleanup_and_save(self, wait_for_processing: bool = True) -> str | None:
+    def _shutdown(self, graceful: bool = True) -> None:
         """
-        セッション終了時のクリーンアップと保存処理
+        セッションの終了処理（コンポーネント停止 + 保存 + サマリ表示）
 
         Args:
-            wait_for_processing: 残りの文字起こし・サマリ生成を待つかどうか
+            graceful: Trueなら残り処理を完了させてから保存、Falseなら即座に終了
+        """
+        # 1. AudioStream停止
+        if self.audio_stream:
+            self.audio_stream.on_exit()
+        if self.display:
+            self.display.clear()
+
+        # 2. Transcriber/Summarizer停止
+        final_summary = self._stop_workers(graceful)
+
+        # 3. セッション保存
+        self._save_session(final_summary)
+
+        # 4. 最終サマリ表示
+        if final_summary and self.display:
+            self.display.show_summary(final_summary)
+
+    def _stop_workers(self, graceful: bool) -> str | None:
+        """
+        ワーカースレッドの停止
+
+        Args:
+            graceful: Trueなら残り処理を完了させてから停止
 
         Returns:
-            str | None: 最終サマリ
+            str | None: 最終サマリ（graceful=Trueの場合のみ）
         """
-        if not self.transcriber or not self.session:
+        if not self.transcriber:
             return None
 
         final_summary = None
 
-        if wait_for_processing:
-            # Transcriberのキューが空になるまで待機
-            print(f"\n{Fore.CYAN}Processing remaining audio...{Style.RESET_ALL}")
+        if graceful:
+            print(f"{Fore.CYAN}Processing remaining audio...{Style.RESET_ALL}")
             self.transcriber.stop(wait_for_queue=True)
             self.transcriber.join(timeout=TRANSCRIBER_SHUTDOWN_TIMEOUT_SEC)
 
-            # タイムアウトした場合の警告
             if self.transcriber.is_alive():
                 print(
-                    f"\n{Fore.YELLOW}Warning: Transcriber thread did not stop cleanly{Style.RESET_ALL}"
+                    f"{Fore.YELLOW}Warning: Transcriber thread did not stop cleanly{Style.RESET_ALL}"
                 )
 
-            # 最終サマリを生成してSummarizerを停止（有効時のみ）
             if self.summarizer:
-                print(f"\n{Fore.CYAN}Generating final summary...{Style.RESET_ALL}")
+                print(f"{Fore.CYAN}Generating final summary...{Style.RESET_ALL}")
                 final_summary = self.summarizer.stop(wait_for_final=True)
-
-                if final_summary:
-                    # セッションに保存
-                    self.session.set_structured_summary(final_summary)
-
                 self.summarizer.join(timeout=SUMMARIZER_SHUTDOWN_TIMEOUT_SEC)
-
-            # JSON保存（wait_for_processing=Trueの場合のみ）
-            if self.session.get_total_segments() > 0:
-                output_path = SessionJsonExporter.save_to_file(self.session)
-                print(
-                    f"\n{Fore.GREEN}Transcription saved to: {output_path}{Style.RESET_ALL}"
-                )
         else:
-            # 即座に停止（JSON保存なし）
             self.transcriber.stop(wait_for_queue=False)
             if self.summarizer:
                 self.summarizer.stop(wait_for_final=False)
@@ -222,6 +229,23 @@ class StreamScribeApp:
             self.transcriber.join(timeout=FAST_SHUTDOWN_TIMEOUT_SEC)
 
         return final_summary
+
+    def _save_session(self, final_summary: str | None) -> None:
+        """
+        セッションの保存（サマリ設定 + JSON出力）
+
+        Args:
+            final_summary: 最終サマリ（Noneでなければセッションに設定）
+        """
+        if not self.session:
+            return
+
+        if final_summary:
+            self.session.set_structured_summary(final_summary)
+
+        if self.session.get_total_segments() > 0:
+            output_path = SessionJsonExporter.save_to_file(self.session)
+            print(f"{Fore.GREEN}Transcription saved to: {output_path}{Style.RESET_ALL}")
 
     def run(self) -> None:
         """メインエントリーポイント"""
@@ -281,50 +305,33 @@ class StreamScribeApp:
         )
 
         try:
-            with self.audio_stream.start():
-                if self.file_path:
-                    # ファイル入力時：音声処理とTranscriberキュー消化の完了を待つ
-                    self.audio_stream.wait_for_completion()
-                else:
-                    # マイク入力時：ユーザーの終了シグナルを待つ
-                    InputHandler.wait_for_exit_signal()
+            with self.audio_stream.start() as stream:
+                # ファイル/マイク共通：終了シグナルを待つ
+                # ファイル入力時は処理完了も終了条件に含める
+                stop_condition = (
+                    (lambda: not stream.is_alive()) if self.file_path else None
+                )
+                completed = InputHandler.wait_for_exit_signal(stop_condition)
+                if completed:
+                    # ファイル処理完了
+                    print(f"\n{Fore.GREEN}File processing completed.{Style.RESET_ALL}")
+                    self._shutdown(graceful=True)
+                    return
         except KeyboardInterrupt:
+            # Ctrl-C: 正常終了（残り処理を待って保存）
             print(f"\n{Fore.GREEN}Goodbye!{Style.RESET_ALL}")
-
-            # AudioStreamの録音を停止
-            self.audio_stream.on_exit()
-            self.display.clear()
-
-            # セッション終了
-            final_summary = self._cleanup_and_save(wait_for_processing=True)
-            if final_summary:
-                self.display.show_summary(final_summary)
+            self._shutdown(graceful=True)
             return
         except EOFError:
-            # Ctrl-D による高速終了（JSON保存なし）
+            # Ctrl-D: 高速終了（保存なし）
             print(f"\n{Fore.YELLOW}Fast exit (Ctrl-D){Style.RESET_ALL}")
-
-            # AudioStreamの録音を停止
-            self.audio_stream.on_exit()
-            self.display.clear()
-
-            # 即座に終了（JSON保存スキップ）
-            self._cleanup_and_save(wait_for_processing=False)
+            self._shutdown(graceful=False)
             return
         except Exception as e:
             # エラー時は即座に終了
             print(f"\n{Fore.RED}Error: {e}{Style.RESET_ALL}", file=sys.stderr)
             traceback.print_exc()
             sys.exit(1)
-
-        # ファイル入力時の正常終了処理
-        print(f"\n{Fore.GREEN}File processing completed.{Style.RESET_ALL}")
-        self.display.clear()
-
-        # セッション終了
-        final_summary = self._cleanup_and_save(wait_for_processing=True)
-        if final_summary:
-            self.display.show_summary(final_summary)
 
 
 def parse_args() -> argparse.Namespace:
