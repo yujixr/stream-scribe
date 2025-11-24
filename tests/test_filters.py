@@ -1,4 +1,4 @@
-"""Tests for HallucinationFilter."""
+"""HallucinationFilterのテスト"""
 
 import pytest
 
@@ -7,7 +7,7 @@ from stream_scribe.infrastructure.ml.filters import HallucinationFilter
 
 @pytest.fixture
 def filter_instance() -> HallucinationFilter:
-    """Create a HallucinationFilter with common banned phrases."""
+    """一般的な禁止フレーズを持つHallucinationFilterを作成"""
     banned_phrases = [
         "ご視聴ありがとうございました",
         "チャンネル登録",
@@ -17,9 +17,10 @@ def filter_instance() -> HallucinationFilter:
 
 
 class TestBannedPhrases:
-    """Tests for banned phrase detection."""
+    """禁止フレーズ検出のテスト"""
 
     def test_detects_banned_phrase(self, filter_instance: HallucinationFilter) -> None:
+        """禁止フレーズを検出する"""
         result = filter_instance.evaluate_transcription("ご視聴ありがとうございました")
         assert result is not None
         assert "Banned phrase" in result
@@ -27,6 +28,7 @@ class TestBannedPhrases:
     def test_detects_banned_phrase_in_middle(
         self, filter_instance: HallucinationFilter
     ) -> None:
+        """文中の禁止フレーズを検出する"""
         result = filter_instance.evaluate_transcription(
             "今日の動画はここまでです。ご視聴ありがとうございました。また次回"
         )
@@ -34,16 +36,18 @@ class TestBannedPhrases:
         assert "Banned phrase" in result
 
     def test_passes_normal_text(self, filter_instance: HallucinationFilter) -> None:
+        """通常のテキストは通過する"""
         result = filter_instance.evaluate_transcription("これは普通の文章です")
         assert result is None
 
 
 class TestCharacterRepetition:
-    """Tests for character repetition detection."""
+    """文字繰り返し検出のテスト"""
 
     def test_detects_repeated_characters(
         self, filter_instance: HallucinationFilter
     ) -> None:
+        """繰り返し文字を検出する"""
         result = filter_instance.evaluate_transcription("ああああああああああ")
         assert result is not None
         assert "Character repetition" in result
@@ -51,6 +55,7 @@ class TestCharacterRepetition:
     def test_detects_repeated_katakana(
         self, filter_instance: HallucinationFilter
     ) -> None:
+        """繰り返しカタカナを検出する"""
         result = filter_instance.evaluate_transcription("ンンンンンンンンンン")
         assert result is not None
         assert "Character repetition" in result
@@ -58,21 +63,23 @@ class TestCharacterRepetition:
     def test_passes_short_repetition(
         self, filter_instance: HallucinationFilter
     ) -> None:
-        result = filter_instance.evaluate_transcription("ああああ")  # Only 4
+        """短い繰り返しは通過する"""
+        result = filter_instance.evaluate_transcription("ああああ")  # 4文字のみ
         assert result is None
 
     def test_passes_varied_text(self, filter_instance: HallucinationFilter) -> None:
+        """多様なテキストは通過する"""
         result = filter_instance.evaluate_transcription("あいうえおかきくけこ")
         assert result is None
 
 
 class TestShortPatternRepetition:
-    """Tests for short pattern repetition detection."""
+    """短パターン繰り返し検出のテスト"""
 
     def test_detects_pattern_repetition(
         self, filter_instance: HallucinationFilter
     ) -> None:
-        # Needs at least 20 chars and pattern must cover 50%+ of text
+        """パターンの繰り返しを検出する（20文字以上かつ50%以上がパターン）"""
         result = filter_instance.evaluate_transcription(
             "ピリピリピリピリピリピリピリピリピリピリピリピリ"
         )
@@ -82,7 +89,7 @@ class TestShortPatternRepetition:
     def test_detects_word_repetition(
         self, filter_instance: HallucinationFilter
     ) -> None:
-        # Needs at least 20 chars and pattern must cover 50%+ of text
+        """単語の繰り返しを検出する（20文字以上かつ50%以上がパターン）"""
         result = filter_instance.evaluate_transcription(
             "はいはいはいはいはいはいはいはいはいはいはいはい"
         )
@@ -90,16 +97,18 @@ class TestShortPatternRepetition:
         assert "Pattern repetition" in result
 
     def test_passes_short_text(self, filter_instance: HallucinationFilter) -> None:
+        """短いテキストは通過する"""
         result = filter_instance.evaluate_transcription("ピリピリ")
         assert result is None
 
 
 class TestLongPatternRepetition:
-    """Tests for long pattern repetition detection."""
+    """長パターン繰り返し検出のテスト"""
 
     def test_detects_long_phrase_repetition(
         self, filter_instance: HallucinationFilter
     ) -> None:
+        """長いフレーズの繰り返しを検出する"""
         phrase = "私たちの意味が好きな話題について、"
         result = filter_instance.evaluate_transcription(phrase * 4)
         assert result is not None
@@ -108,6 +117,7 @@ class TestLongPatternRepetition:
     def test_passes_non_repetitive_long_text(
         self, filter_instance: HallucinationFilter
     ) -> None:
+        """繰り返しのない長いテキストは通過する"""
         text = (
             "今日は天気が良いです。明日は雨が降るかもしれません。週末は晴れるでしょう。"
         )
@@ -116,11 +126,12 @@ class TestLongPatternRepetition:
 
 
 class TestTokenRepetition:
-    """Tests for token repetition detection."""
+    """トークン繰り返し検出のテスト"""
 
     def test_detects_token_repetition_at_end(
         self, filter_instance: HallucinationFilter
     ) -> None:
+        """末尾のトークン繰り返しを検出する"""
         result = filter_instance.evaluate_transcription(
             "はい。はい。はい。はい。はい。"
         )
@@ -128,6 +139,7 @@ class TestTokenRepetition:
         assert "Token repetition" in result
 
     def test_passes_varied_tokens(self, filter_instance: HallucinationFilter) -> None:
+        """多様なトークンは通過する"""
         result = filter_instance.evaluate_transcription(
             "はい。いいえ。多分。そうですね。分かりました。"
         )
@@ -135,11 +147,12 @@ class TestTokenRepetition:
 
 
 class TestExtremeConfidence:
-    """Tests for extreme low confidence detection."""
+    """極端な低信頼度検出のテスト"""
 
     def test_detects_extreme_low_confidence(
         self, filter_instance: HallucinationFilter
     ) -> None:
+        """極端に低い信頼度を検出する"""
         result = filter_instance.evaluate_transcription("テスト", avg_logprob=-2.0)
         assert result is not None
         assert "Extreme low confidence" in result
@@ -147,30 +160,35 @@ class TestExtremeConfidence:
     def test_passes_normal_confidence(
         self, filter_instance: HallucinationFilter
     ) -> None:
+        """通常の信頼度は通過する"""
         result = filter_instance.evaluate_transcription("テスト", avg_logprob=-0.5)
         assert result is None
 
     def test_passes_none_confidence(self, filter_instance: HallucinationFilter) -> None:
+        """信頼度がNoneの場合は通過する"""
         result = filter_instance.evaluate_transcription("テスト", avg_logprob=None)
         assert result is None
 
 
 class TestEmptyInput:
-    """Tests for empty input handling."""
+    """空入力処理のテスト"""
 
     def test_empty_string(self, filter_instance: HallucinationFilter) -> None:
+        """空文字列の処理"""
         result = filter_instance.evaluate_transcription("")
         assert result is None
 
     def test_whitespace_only(self, filter_instance: HallucinationFilter) -> None:
+        """空白のみの文字列の処理"""
         result = filter_instance.evaluate_transcription("   ")
         assert result is None
 
 
 class TestExtractMetrics:
-    """Tests for metrics extraction."""
+    """メトリクス抽出のテスト"""
 
     def test_extracts_metrics(self, filter_instance: HallucinationFilter) -> None:
+        """メトリクスを正しく抽出する"""
         segments = [
             {"avg_logprob": -0.5, "compression_ratio": 1.2, "no_speech_prob": 0.1},
             {"avg_logprob": -0.7, "compression_ratio": 1.5, "no_speech_prob": 0.2},
@@ -180,10 +198,11 @@ class TestExtractMetrics:
         )
 
         assert avg_logprob == pytest.approx(-0.6, rel=1e-2)
-        assert compression_ratio == 1.5  # max
-        assert no_speech_prob == 0.2  # max
+        assert compression_ratio == 1.5  # 最大値
+        assert no_speech_prob == 0.2  # 最大値
 
     def test_handles_empty_segments(self, filter_instance: HallucinationFilter) -> None:
+        """空のセグメントリストを処理する"""
         avg_logprob, compression_ratio, no_speech_prob = (
             filter_instance.extract_metrics([])
         )
@@ -192,6 +211,7 @@ class TestExtractMetrics:
         assert no_speech_prob is None
 
     def test_handles_none_segments(self, filter_instance: HallucinationFilter) -> None:
+        """Noneのセグメントを処理する"""
         avg_logprob, compression_ratio, no_speech_prob = (
             filter_instance.extract_metrics(None)
         )
@@ -202,6 +222,7 @@ class TestExtractMetrics:
     def test_handles_partial_metrics(
         self, filter_instance: HallucinationFilter
     ) -> None:
+        """部分的なメトリクスを処理する"""
         segments = [
             {"avg_logprob": -0.5},
             {"compression_ratio": 1.5},

@@ -16,16 +16,16 @@ import numpy as np
 
 from stream_scribe.domain.constants import (
     AUDIO_BLOCK_SEC,
-    MAX_SILENCE_CHUNKS,
     MIN_SPEECH_CHUNKS,
     PREROLL_CHUNKS,
-    VAD_END_THRESHOLD,
-    VAD_IDLE_RESET_CHUNKS,
-    VAD_START_THRESHOLD,
 )
 from stream_scribe.domain.models import AudioStreamStatusEvent
 from stream_scribe.infrastructure.audio.sources import AudioSource
 from stream_scribe.infrastructure.audio.vad_detector import VADDetector
+from stream_scribe.infrastructure.audio.vad_state_machine import (
+    VadAction,
+    VadStateMachine,
+)
 from stream_scribe.infrastructure.ml.transcriber import Transcriber
 
 
@@ -55,13 +55,16 @@ class AudioStream:
         # プリロール用リングバッファ (collections.deque)
         self.preroll_ring_buffer: deque[np.ndarray] = deque(maxlen=PREROLL_CHUNKS)
 
-        # 録音バッファと状態管理
+        # 録音バッファ
         self.recording_buffer: list[np.ndarray] = []
-        self.is_recording = False
+
+        # VAD状態遷移ロジック（委譲）
+        self.state_machine = VadStateMachine()
+
+        # 外部ステータス（Transcriberの処理状態）
         self.is_transcribing = False
-        self.silence_chunks = 0
-        self.speech_chunks = 0
-        self.idle_silence_chunks = 0  # 待機中の無音カウンタ（LSTM状態リセット用）
+
+        # 録音タイムスタンプ
         self.recording_start: datetime | None = None
         self.recording_start_mono: float | None = (
             None  # time.time()ベース（経過時間計算用）
@@ -72,82 +75,54 @@ class AudioStream:
         self._thread: threading.Thread | None = None
 
     def process_chunk(self, chunk: np.ndarray) -> None:
-        """チャンク単位のVAD処理（日本語最適化版：ヒステリシス制御）"""
+        """チャンク単位のVAD処理"""
         # 1. VAD推論
         probability = self.vad(chunk)
 
-        # 2. 録音経過時間を計算
+        # 2. ステータスイベントを発行
+        self._emit_status_event(probability)
+
+        # 3. プリロールバッファに追加
+        self.preroll_ring_buffer.append(chunk)
+
+        # 4. ステートマシンで状態遷移を処理
+        action = self.state_machine.process(probability)
+
+        # 5. アクションに応じた処理
+        if action == VadAction.START_RECORDING:
+            self._start_recording()
+        elif action == VadAction.STOP_RECORDING:
+            self._stop_recording()
+        elif action == VadAction.RESET_VAD_MODEL:
+            self.vad.reset_states()
+
+        # 6. 録音中ならデータをバッファへ
+        if self.state_machine.is_recording:
+            self.recording_buffer.append(chunk)
+
+    def _emit_status_event(self, probability: float) -> None:
+        """ステータスイベントを発行"""
         recording_elapsed = 0.0
-        if self.is_recording and self.recording_start_mono:
+        if self.state_machine.is_recording and self.recording_start_mono:
             recording_elapsed = time.time() - self.recording_start_mono
 
-        # 3. ステータスイベントを発行
         status_event = AudioStreamStatusEvent(
             probability=probability,
-            is_recording=self.is_recording,
+            is_recording=self.state_machine.is_recording,
             is_transcribing=self.is_transcribing,
             recording_elapsed=recording_elapsed,
-            speech_chunks=self.speech_chunks,
+            speech_chunks=self.state_machine.speech_chunks,
         )
         self.on_status_update(status_event)
 
-        # 4. プリロールバッファに追加
-        self.preroll_ring_buffer.append(chunk)
-
-        # === 5. ステートマシン (ヒステリシス制御) ===
-
-        # 現在の状態に応じて閾値を切り替える
-        if self.is_recording:
-            # 録音中は「終わらせない」ために低い閾値を使う（語尾保護）
-            is_speech = probability >= VAD_END_THRESHOLD
-        else:
-            # 待機中は「誤検知しない」ために高い閾値を使う（ノイズ対策）
-            is_speech = probability >= VAD_START_THRESHOLD
-
-        if is_speech:
-            self.silence_chunks = 0
-            self.speech_chunks += 1
-            self.idle_silence_chunks = 0  # 音声検出時は待機中カウンタをリセット
-
-            # 録音開始判定
-            if not self.is_recording and self.speech_chunks >= MIN_SPEECH_CHUNKS:
-                self.start_recording()
-
-            # 録音中ならデータをバッファへ
-            if self.is_recording:
-                self.recording_buffer.append(chunk)
-
-        else:
-            # 音声ではないと判定された場合
-            self.speech_chunks = 0
-
-            if self.is_recording:
-                self.silence_chunks += 1
-                self.recording_buffer.append(chunk)
-
-                # 録音終了判定 (無音が指定期間続いたら終了)
-                if self.silence_chunks >= MAX_SILENCE_CHUNKS:
-                    self.stop_recording()
-            else:
-                # 待機中の無音カウンタを更新
-                self.idle_silence_chunks += 1
-
-                # 長時間無音が続いたらLSTM状態をリセット（検出感度の劣化を防止）
-                if self.idle_silence_chunks >= VAD_IDLE_RESET_CHUNKS:
-                    self.vad.reset_states()
-                    self.idle_silence_chunks = 0
-
-    def start_recording(self) -> None:
+    def _start_recording(self) -> None:
         """録音開始 (プリロールを結合)"""
-        self.is_recording = True
         self.recording_start = datetime.now()
         self.recording_start_mono = time.time()
         self.recording_buffer = list(self.preroll_ring_buffer)
 
-    def stop_recording(self) -> None:
+    def _stop_recording(self) -> None:
         """録音終了 (Transcriberに送信)"""
-        self.is_recording = False
-        self.recording_start_mono = None
         recording_end = datetime.now()
 
         if len(self.recording_buffer) > MIN_SPEECH_CHUNKS and self.recording_start:
@@ -158,16 +133,16 @@ class AudioStream:
 
             # Transcriberに送信（録音開始/終了時刻と処理完了コールバックを含む）
             self.transcriber.add_audio(
-                audio, self.recording_start, recording_end, self.complete_processing
+                audio, self.recording_start, recording_end, self._complete_processing
             )
 
         # リセット
         self.recording_buffer = []
-        self.silence_chunks = 0
         self.recording_start = None
+        self.recording_start_mono = None
         self.vad.reset_states()
 
-    def complete_processing(self) -> None:
+    def _complete_processing(self) -> None:
         """処理完了を通知（Transcriberのコールバックから呼ばれる）"""
         # キューが空の場合のみ is_transcribing をFalseにする
         if not self.transcriber.is_processing():
@@ -181,8 +156,8 @@ class AudioStream:
             self.process_chunk(chunk)
 
         # ストリーム終了時に録音中の場合は停止
-        if self.is_recording:
-            self.stop_recording()
+        if self.state_machine.is_recording:
+            self._stop_recording()
 
         # 音声入力終了後も文字起こし処理中はステータス更新を継続
         while self._running and self.transcriber.is_processing():
@@ -230,8 +205,8 @@ class AudioStream:
     def on_exit(self) -> None:
         """終了時の処理"""
         self._running = False
-        if self.is_recording:
-            self.stop_recording()
+        if self.state_machine.is_recording:
+            self._stop_recording()
 
     def wait_for_completion(self) -> None:
         """スレッド終了を待機（Transcriberキューが空になるまで待機済み）"""
