@@ -282,7 +282,12 @@ class StreamScribeApp:
 
         try:
             with self.audio_stream.start():
-                InputHandler.wait_for_exit_signal()
+                if self.file_path:
+                    # ファイル入力時：音声処理とTranscriberキュー消化の完了を待つ
+                    self.audio_stream.wait_for_completion()
+                else:
+                    # マイク入力時：ユーザーの終了シグナルを待つ
+                    InputHandler.wait_for_exit_signal()
         except KeyboardInterrupt:
             print(f"\n{Fore.GREEN}Goodbye!{Style.RESET_ALL}")
 
@@ -294,6 +299,7 @@ class StreamScribeApp:
             final_summary = self._cleanup_and_save(wait_for_processing=True)
             if final_summary:
                 self.display.show_summary(final_summary)
+            return
         except EOFError:
             # Ctrl-D による高速終了（JSON保存なし）
             print(f"\n{Fore.YELLOW}Fast exit (Ctrl-D){Style.RESET_ALL}")
@@ -304,11 +310,21 @@ class StreamScribeApp:
 
             # 即座に終了（JSON保存スキップ）
             self._cleanup_and_save(wait_for_processing=False)
+            return
         except Exception as e:
             # エラー時は即座に終了
             print(f"\n{Fore.RED}Error: {e}{Style.RESET_ALL}", file=sys.stderr)
             traceback.print_exc()
             sys.exit(1)
+
+        # ファイル入力時の正常終了処理
+        print(f"\n{Fore.GREEN}File processing completed.{Style.RESET_ALL}")
+        self.display.clear()
+
+        # セッション終了
+        final_summary = self._cleanup_and_save(wait_for_processing=True)
+        if final_summary:
+            self.display.show_summary(final_summary)
 
 
 def parse_args() -> argparse.Namespace:

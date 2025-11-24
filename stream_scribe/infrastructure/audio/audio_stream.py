@@ -232,3 +232,8 @@ class AudioStream:
         self._running = False
         if self.is_recording:
             self.stop_recording()
+
+    def wait_for_completion(self) -> None:
+        """スレッド終了を待機（Transcriberキューが空になるまで待機済み）"""
+        if self._thread and self._thread.is_alive():
+            self._thread.join()
