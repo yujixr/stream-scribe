@@ -50,7 +50,6 @@ class TranscriptionError:
 
     timestamp: datetime
     message: str
-    exception_type: str | None = None  # 例外の型名（あれば）
 
 
 class TranscriptionSession:

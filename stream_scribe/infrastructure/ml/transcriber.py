@@ -48,6 +48,7 @@ class Transcriber(threading.Thread):
             tuple[np.ndarray, datetime, datetime, Callable[[], None]]
         ] = queue.Queue()
         self.running = True
+        self._processing = False  # 現在処理中かどうか
         self.model_name = model_name
         self.on_segment = on_segment  # コールバック関数
         self.on_error = on_error  # エラーコールバック
@@ -93,7 +94,11 @@ class Transcriber(threading.Thread):
             audio, recording_start, recording_end, completion_callback = data
 
             # リトライ戦略を使用した文字起こし処理
-            self._process_audio(audio, recording_start, recording_end)
+            self._processing = True
+            try:
+                self._process_audio(audio, recording_start, recording_end)
+            finally:
+                self._processing = False
 
             # 処理完了コールバックを呼ぶ
             completion_callback()
@@ -190,9 +195,9 @@ class Transcriber(threading.Thread):
         現在処理中のタスクがあるかどうかを返す
 
         Returns:
-            bool: キューにタスクがある場合True
+            bool: キューにタスクがあるか、処理中の場合True
         """
-        return not self.queue.empty()
+        return self._processing or not self.queue.empty()
 
     def stop(self, wait_for_queue: bool = False) -> None:
         """

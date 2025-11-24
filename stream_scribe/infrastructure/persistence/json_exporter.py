@@ -60,11 +60,7 @@ class SessionJsonExporter:
 
         # エラーをdictに変換
         errors_dict = [
-            {
-                "timestamp": err.timestamp.isoformat(),
-                "message": err.message,
-                "exception_type": err.exception_type,
-            }
+            {"timestamp": err.timestamp.isoformat(), "message": err.message}
             for err in session.errors
         ]
 

@@ -137,11 +137,7 @@ class StreamScribeApp:
         """エラー発生時のイベントハンドラ"""
         # セッションにエラーを記録
         if self.session:
-            error = TranscriptionError(
-                timestamp=error_time,
-                message=error_message,
-                exception_type=type(exception).__name__ if exception else None,
-            )
+            error = TranscriptionError(timestamp=error_time, message=error_message)
             self.session.add_error(error)
 
         if self.display:
