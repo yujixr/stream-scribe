@@ -19,7 +19,9 @@ def strategy() -> TranscriptionRetryStrategy:
 class TestInitialState:
     """初期状態のテスト"""
 
-    def test_initial_attempt_is_zero(self, strategy: TranscriptionRetryStrategy) -> None:
+    def test_initial_attempt_is_zero(
+        self, strategy: TranscriptionRetryStrategy
+    ) -> None:
         """初期状態では試行回数がゼロ"""
         assert strategy.current_attempt == 0
 
@@ -73,9 +75,7 @@ class TestAcceptAction:
         assert result.action == TranscriptionAction.ACCEPT
         assert strategy.current_attempt == 0  # カウンターは増加しない
 
-    def test_accepts_after_retries(
-        self, strategy: TranscriptionRetryStrategy
-    ) -> None:
+    def test_accepts_after_retries(self, strategy: TranscriptionRetryStrategy) -> None:
         """リトライ後でも成功すればACCEPT"""
         # 2回失敗
         strategy.evaluate_result("", "Error 1")
@@ -94,7 +94,9 @@ class TestRetryAction:
         self, strategy: TranscriptionRetryStrategy
     ) -> None:
         """フィルタ理由がある場合はRETRY"""
-        result = strategy.evaluate_result("ご視聴ありがとうございました", "Banned phrase detected")
+        result = strategy.evaluate_result(
+            "ご視聴ありがとうございました", "Banned phrase detected"
+        )
         assert result.action == TranscriptionAction.RETRY
         assert result.next_params is not None
         assert result.reason == "Banned phrase detected"
@@ -289,4 +291,7 @@ class TestEdgeCases:
             strategy.evaluate_result("bad", "Error")
 
         # 最後のパラメータ
-        assert strategy.get_current_params() == WHISPER_PARAMS[MAX_TRANSCRIPTION_RETRIES - 1]
+        assert (
+            strategy.get_current_params()
+            == WHISPER_PARAMS[MAX_TRANSCRIPTION_RETRIES - 1]
+        )
