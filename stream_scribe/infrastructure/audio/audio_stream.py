@@ -15,6 +15,7 @@ from typing import Callable
 import numpy as np
 
 from stream_scribe.domain.constants import (
+    AUDIO_BLOCK_SEC,
     MAX_SILENCE_CHUNKS,
     MIN_SPEECH_CHUNKS,
     PREROLL_CHUNKS,
@@ -182,6 +183,18 @@ class AudioStream:
         # ストリーム終了時に録音中の場合は停止
         if self.is_recording:
             self.stop_recording()
+
+        # 音声入力終了後も文字起こし処理中はステータス更新を継続
+        while self._running and self.transcriber.is_processing():
+            status_event = AudioStreamStatusEvent(
+                probability=0.0,
+                is_recording=False,
+                is_transcribing=self.is_transcribing,
+                recording_elapsed=0.0,
+                speech_chunks=0,
+            )
+            self.on_status_update(status_event)
+            time.sleep(AUDIO_BLOCK_SEC)
 
     @contextmanager
     def start(self) -> Generator["AudioStream", None, None]:
