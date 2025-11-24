@@ -93,6 +93,7 @@ python -m stream_scribe                 # デフォルトマイクで録音開�
 python -m stream_scribe -l              # 利用可能なデバイス一覧
 python -m stream_scribe -d 0            # デバイスID指定
 python -m stream_scribe -f audio.mp3    # ファイルから文字起こし
+python -m stream_scribe --no-summary    # サマリ生成を無効化
 
 # 終了: Ctrl-C（JSON保存）/ Ctrl-D（保存なし）
 ```
@@ -102,9 +103,6 @@ python -m stream_scribe -f audio.mp3    # ファイルから文字起こし
 `stream_scribe/domain/constants.py` で各種パラメータを調整できます。
 
 ```python
-# 会話構造化の有効化
-ENABLE_SUMMARY = True  # 要：ANTHROPIC_API_KEY環境変数
-
 # VAD感度
 VAD_START_THRESHOLD = 0.5  # 低いほど敏感
 VAD_END_THRESHOLD = 0.3    # 低いほど長く録音

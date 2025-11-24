@@ -115,7 +115,6 @@ MAX_TRANSCRIPTION_RETRIES = len(WHISPER_PARAMS)
 # ========================================
 # Real-time Summarizer
 # ========================================
-ENABLE_SUMMARY = False  # サマリ生成を有効化（デバッグ時はFalse推奨）
 SUMMARY_TRIGGER_THRESHOLD = (
     400  # 要約トリガーの文字数閾値（文脈をまとめるため少し長めに）
 )

@@ -16,7 +16,6 @@ from colorama import init as colorama_init
 from stream_scribe.domain.constants import (
     BANNED_PHRASES,
     CHUNK_MS,
-    ENABLE_SUMMARY,
     FAST_SHUTDOWN_TIMEOUT_SEC,
     MIN_SPEECH_CHUNKS,
     PREROLL_SEC,
@@ -67,10 +66,12 @@ class StreamScribeApp:
         api_key: str,
         device_id: int | None = None,
         file_path: str | None = None,
+        enable_summary: bool = True,
     ):
         self.api_key = api_key
         self.device_id = device_id
         self.file_path = file_path
+        self.enable_summary = enable_summary
 
         # コンポーネント（run()で初期化）
         self.session: TranscriptionSession | None = None
@@ -238,8 +239,8 @@ class StreamScribeApp:
         formatter = DisplayFormatter()
         self.display = StatusDisplay(formatter)
 
-        # 4. RealtimeSummarizer初期化（ENABLE_SUMMARYがTrueの場合のみ）
-        if ENABLE_SUMMARY:
+        # 4. RealtimeSummarizer初期化（enable_summaryがTrueかつAPIキーが存在する場合のみ）
+        if self.enable_summary and self.api_key:
             self.summarizer = RealtimeSummarizer(
                 on_summary_update=self.session.set_structured_summary,
                 on_summary_display=self.display.show_summary,
@@ -338,6 +339,11 @@ def parse_args() -> argparse.Namespace:
         metavar="PATH",
         help="Audio file path (mp3/wav) to transcribe instead of microphone input",
     )
+    parser.add_argument(
+        "--no-summary",
+        action="store_true",
+        help="Disable real-time summary generation",
+    )
     return parser.parse_args()
 
 
@@ -365,18 +371,25 @@ def main() -> None:
         print_audio_devices()
         return
 
-    # APIキーの取得（サマリ生成が有効な場合のみ必須）
+    # サマリ生成の有効/無効を判定
+    enable_summary = not args.no_summary
+
+    # APIキーの取得
     api_key = os.getenv("ANTHROPIC_API_KEY")
-    if ENABLE_SUMMARY and not api_key:
+
+    # サマリ生成が有効でAPIキーがない場合は警告を表示して無効化
+    if enable_summary and not api_key:
+        colorama_init(autoreset=True)
         print(
-            f"{Fore.RED}Error: ANTHROPIC_API_KEY environment variable is not set.{Style.RESET_ALL}"
+            f"{Fore.YELLOW}Warning: ANTHROPIC_API_KEY is not set. Summary generation disabled.{Style.RESET_ALL}"
         )
-        sys.exit(1)
+        enable_summary = False
 
     app = StreamScribeApp(
         api_key=api_key or "",
         device_id=args.device,
         file_path=args.file,
+        enable_summary=enable_summary,
     )
     app.run()
 
