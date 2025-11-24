@@ -15,13 +15,16 @@ import numpy as np
 from colorama import Fore, Style  # type: ignore[import-untyped]
 
 from stream_scribe.domain.constants import (
-    MAX_TRANSCRIPTION_RETRIES,
     SAMPLE_RATE,
     WHISPER_MODEL,
     WHISPER_PARAMS,
 )
 from stream_scribe.domain.models import TranscriptionSegment
 from stream_scribe.infrastructure.ml.filters import HallucinationFilter
+from stream_scribe.infrastructure.ml.transcription_strategy import (
+    TranscriptionAction,
+    TranscriptionRetryStrategy,
+)
 
 
 class Transcriber(threading.Thread):
@@ -89,77 +92,98 @@ class Transcriber(threading.Thread):
             # データを展開
             audio, recording_start, recording_end, completion_callback = data
 
-            # 段階的再試行ロジック（ハルシネーション + 信頼度ベース）
-            processing_start = time.time()
-
-            for attempt in range(MAX_TRANSCRIPTION_RETRIES):
-                params = WHISPER_PARAMS[attempt]
-
-                # Whisper推論
-                try:
-                    result = mlx_whisper.transcribe(
-                        audio, path_or_hf_repo=self.model_name, **params
-                    )
-                except Exception as e:
-                    # mlx_whisper自体のエラー（構造的な問題）は再試行しない
-                    if self.running:
-                        self.on_error(recording_end, "Transcription failed", e)
-                    break  # forループを抜けてcompletion_callback()へ
-
-                # テキスト抽出と正規化
-                text_raw = result.get("text", "")
-                text = str(text_raw).strip() if text_raw else ""
-                segments_raw = result.get("segments")
-                segments = segments_raw if isinstance(segments_raw, list) else []
-
-                # メトリクスを抽出（フィルタリング + 分析用）
-                metrics = self.hallucination_filter.extract_metrics(segments)
-                avg_logprob = metrics[0]
-
-                # 幻覚検出（テキストパターン + 極端に低い信頼度）
-                retry_reason = self.hallucination_filter.evaluate_transcription(
-                    text, avg_logprob
-                )
-
-                if text and not retry_reason:
-                    # 成功：処理時間を計算してセグメントを作成
-                    processing_time = time.time() - processing_start
-                    audio_duration = len(audio) / SAMPLE_RATE
-
-                    segment = TranscriptionSegment(
-                        text=text,
-                        start_time=recording_start,
-                        end_time=recording_end,
-                        audio_duration=audio_duration,
-                        processing_time=processing_time,
-                        avg_logprob=metrics[0],
-                        compression_ratio=metrics[1],
-                        no_speech_prob=metrics[2],
-                    )
-                    self.on_segment(segment)
-                    break  # 成功したのでループを抜ける
-                elif retry_reason:
-                    # 幻覚検出または低信頼度
-                    is_final = attempt == MAX_TRANSCRIPTION_RETRIES - 1
-                    status = "filtered" if is_final else "detected"
-
-                    suffix = (
-                        f" | Text: '{text[:50]}...'"
-                        if is_final
-                        else " | Retrying with stricter parameters..."
-                    )
-
-                    self.on_error(
-                        recording_start,
-                        f"Quality issue {status} (attempt {attempt + 1}/{MAX_TRANSCRIPTION_RETRIES}): {retry_reason}{suffix}",
-                        None,
-                    )
-                else:
-                    # 空のテキスト（無音判定など）
-                    break
+            # リトライ戦略を使用した文字起こし処理
+            self._process_audio(audio, recording_start, recording_end)
 
             # 処理完了コールバックを呼ぶ
             completion_callback()
+
+    def _process_audio(
+        self, audio: np.ndarray, recording_start: datetime, recording_end: datetime
+    ) -> None:
+        """
+        リトライ戦略を使用した文字起こし処理
+
+        Args:
+            audio: 音声データ
+            recording_start: 録音開始時刻
+            recording_end: 録音終了時刻
+        """
+        strategy = TranscriptionRetryStrategy()
+        processing_start = time.time()
+
+        while True:
+            params = strategy.get_current_params()
+
+            # Whisper推論
+            try:
+                result = mlx_whisper.transcribe(
+                    audio, path_or_hf_repo=self.model_name, **params
+                )
+            except Exception as e:
+                # mlx_whisper自体のエラー（構造的な問題）は再試行しない
+                if self.running:
+                    self.on_error(recording_end, "Transcription failed", e)
+                return
+
+            # テキスト抽出と正規化
+            text_raw = result.get("text", "")
+            text = str(text_raw).strip() if text_raw else ""
+            segments_raw = result.get("segments")
+            segments = segments_raw if isinstance(segments_raw, list) else []
+
+            # メトリクスを抽出（フィルタリング + 分析用）
+            metrics = self.hallucination_filter.extract_metrics(segments)
+            avg_logprob = metrics[0]
+
+            # 幻覚検出（テキストパターン + 極端に低い信頼度）
+            filter_reason = self.hallucination_filter.evaluate_transcription(
+                text, avg_logprob
+            )
+
+            # 戦略に評価を委譲
+            strategy_result = strategy.evaluate_result(text, filter_reason)
+
+            if strategy_result.action == TranscriptionAction.ACCEPT:
+                # 成功：処理時間を計算してセグメントを作成
+                processing_time = time.time() - processing_start
+                audio_duration = len(audio) / SAMPLE_RATE
+
+                segment = TranscriptionSegment(
+                    text=text,
+                    start_time=recording_start,
+                    end_time=recording_end,
+                    audio_duration=audio_duration,
+                    processing_time=processing_time,
+                    avg_logprob=metrics[0],
+                    compression_ratio=metrics[1],
+                    no_speech_prob=metrics[2],
+                )
+                self.on_segment(segment)
+                return
+
+            elif strategy_result.action == TranscriptionAction.RETRY:
+                # リトライ：エラーを通知して続行
+                attempt, max_attempts = strategy.get_attempt_info()
+                self.on_error(
+                    recording_start,
+                    f"Quality issue detected (attempt {attempt - 1}/{max_attempts}): "
+                    f"{strategy_result.reason} | Retrying with stricter parameters...",
+                    None,
+                )
+                # whileループで再試行
+
+            else:  # TranscriptionAction.DISCARD
+                # 破棄：無音以外の場合はエラーを通知
+                if filter_reason:  # 無音ではない場合のみエラー表示
+                    attempt, max_attempts = strategy.get_attempt_info()
+                    self.on_error(
+                        recording_start,
+                        f"Quality issue filtered (attempt {attempt}/{max_attempts}): "
+                        f"{strategy_result.reason} | Text: '{text[:50]}...'",
+                        None,
+                    )
+                return
 
     def is_processing(self) -> bool:
         """
