@@ -132,7 +132,9 @@ class StreamScribeApp:
     def print_banner(self) -> None:
         """起動バナー表示"""
         # バージョン文字列の表示：.dev以降をカット
-        version_display = __version__.split(".dev")[0] if ".dev" in __version__ else __version__
+        version_display = (
+            __version__.split(".dev")[0] if ".dev" in __version__ else __version__
+        )
         banner = f"""
 {Fore.CYAN}╔══════════════════════════════════════════╗
 ║       Stream Scribe v{version_display:<18}  ║
