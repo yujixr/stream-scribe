@@ -54,62 +54,63 @@ WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"  # OpenAI公式の高速�
 WHISPER_INITIAL_PROMPT = "句読点を含む正確な日本語で書き起こします。"
 
 # Whisperパラメータ（5段階の戦略的再試行 - 日本語最適化）
-# 戦略: 「標準」→「ループ対策」→「バイアス（プロンプト）排除」→「厳格化」→「最終フィルタ」
+# 戦略: 「標準」→「ループ対策+軽探索」→「バイアス排除+中探索」→「厳格化+高探索」→「最終フィルタ+最大探索」
+# temperatureを段階的に上げることで、ハルシネーションループから確率的に脱出させる
 WHISPER_PARAMS = [
     # --- フェーズ1: 標準 ---
     # 1回目: 最も標準的な設定。プロンプトにより文脈と句読点を整える。
     # ほとんどの正常な発話はここで通過するはず。
     {
         "language": "ja",
-        "temperature": 0.0,
+        "temperature": 0.0,  # 決定論的
         "condition_on_previous_text": False,
         "initial_prompt": WHISPER_INITIAL_PROMPT,
         "compression_ratio_threshold": 2.4,
         "logprob_threshold": -1.0,
         "no_speech_threshold": 0.6,
     },
-    # --- フェーズ2: ループ対策 ---
+    # --- フェーズ2: ループ対策+軽探索 ---
     # 2回目: プロンプトは維持しつつ、繰り返しループ（「ご視聴...」等）を圧縮率で弾く。
-    # 対数確率は変えず、異常な繰り返しだけをターゲットにする。
+    # 軽度の確率性を導入し、決定論的ループの脱出を試みる。
     {
         "language": "ja",
-        "temperature": 0.0,
+        "temperature": 0.2,  # 軽い確率性
         "condition_on_previous_text": False,
         "initial_prompt": WHISPER_INITIAL_PROMPT,
         "compression_ratio_threshold": 2.0,  # 標準（2.4）より厳格化
         "logprob_threshold": -1.0,
         "no_speech_threshold": 0.6,
     },
-    # --- フェーズ3: バイアス排除 ---
+    # --- フェーズ3: バイアス排除+中探索 ---
     # 3回目: プロンプト起因の強力な幻覚（「チャンネル登録」等）を物理的に遮断。
-    # ここが最も重要な転換点。プロンプトを消すことで、音声のみに集中させる。
+    # プロンプト削除により音声のみに集中させつつ、中程度の探索で代替ルートを開拓。
     {
         "language": "ja",
-        "temperature": 0.0,
+        "temperature": 0.4,  # 中程度の確率性
         "condition_on_previous_text": False,
         "initial_prompt": None,  # プロンプト完全削除
         "compression_ratio_threshold": 2.2,  # プロンプトがない分、圧縮率は少し緩め直す
         "logprob_threshold": -1.0,
         "no_speech_threshold": 0.6,
     },
-    # --- フェーズ4: 厳格化 ---
+    # --- フェーズ4: 厳格化+高探索 ---
     # 4回目: プロンプトなしでも出てくる「自信のない出力」をカット。
-    # ノイズを無理やり言語化しているケースを弾く。
+    # 高い確率性により、ノイズを無理やり言語化しているループから抜け出す。
     {
         "language": "ja",
-        "temperature": 0.0,
+        "temperature": 0.6,  # 高い確率性
         "condition_on_previous_text": False,
         "initial_prompt": None,
         "compression_ratio_threshold": 1.8,
         "logprob_threshold": -0.6,  # かなり厳しめ
         "no_speech_threshold": 0.5,  # 無音判定を敏感に
     },
-    # --- フェーズ5: 最終ゲート（最終手段） ---
+    # --- フェーズ5: 最終ゲート+最大探索 ---
     # 5回目: ほぼ確実な音声以外は全て捨てる。
-    # これでも弾かれるなら、それは「言葉」ではない可能性が高い。
+    # 最大限の探索性により、あらゆる可能性を試して最終判定。
     {
         "language": "ja",
-        "temperature": 0.0,
+        "temperature": 0.8,  # 最大の確率性
         "condition_on_previous_text": False,
         "initial_prompt": None,
         "compression_ratio_threshold": 1.4,  # 繰り返しを一切許容しない
