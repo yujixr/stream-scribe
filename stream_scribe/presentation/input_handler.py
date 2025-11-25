@@ -39,11 +39,7 @@ class InputHandler:
             KeyboardInterrupt: Ctrl-C が押された場合
             EOFError: Ctrl-D が押された場合
         """
-        while True:
-            # 終了条件のチェック
-            if stop_condition is not None and stop_condition():
-                return True
-
+        while stop_condition is None or not stop_condition():
             # 標準入力の監視（Ctrl-D検出用）
             if sys.stdin.isatty():
                 ready, _, _ = select.select(
@@ -59,3 +55,5 @@ class InputHandler:
                         raise
             else:
                 time.sleep(INPUT_POLL_INTERVAL_SEC)
+
+        return True

@@ -4,19 +4,43 @@ Stream Scribe - Prompt Templates
 Claude API用のプロンプトテンプレートを管理するモジュール
 """
 
+from typing import Protocol
 
-class SummaryPromptBuilder:
+from stream_scribe.domain.models import TranscriptionSession
+
+
+class PromptStrategy(Protocol):
     """
-    会話構造化用プロンプトビルダー
+    プロンプト構築戦略の抽象インターフェース
 
     責務:
     - システムプロンプトの提供
     - ユーザープロンプトの構築
-    - プロンプト戦略の一元管理
     """
 
-    # システムプロンプト（定数）
-    SYSTEM_PROMPT = """
+    @property
+    def system_prompt(self) -> str:
+        """システムプロンプトを取得"""
+        ...
+
+    def build_user_prompt(self, **kwargs: str | TranscriptionSession) -> str:
+        """ユーザープロンプトを構築"""
+        ...
+
+
+class RealtimePromptStrategy:
+    """
+    リアルタイム要約用プロンプト戦略
+
+    責務:
+    - インテリジェント・スクライブとしてのシステムプロンプト提供
+    - 現在の議事録と新しい発言を統合するユーザープロンプト構築
+    """
+
+    @property
+    def system_prompt(self) -> str:
+        """リアルタイム要約用システムプロンプト"""
+        return """
 あなたは、リアルタイム会話の構造化を行う「インテリジェント・スクライブ」です。
 提供された「これまでの要約」と「新しい発言」を統合し、状態を更新してください。
 
@@ -54,10 +78,9 @@ class SummaryPromptBuilder:
 (直近の発言を、文脈補正した上で時系列で3件程度追記)
 """
 
-    @staticmethod
-    def build_user_prompt(current_summary: str, new_text_chunk: str) -> str:
+    def build_user_prompt(self, current_summary: str, new_text_chunk: str) -> str:
         """
-        ユーザープロンプトを構築
+        リアルタイム要約用のユーザープロンプトを構築
 
         Args:
             current_summary: 現在の議事録（空文字列の場合は初期状態）
@@ -75,4 +98,91 @@ class SummaryPromptBuilder:
 
 【新しい発言（音声認識生データ・誤字含む）】
 {new_text_chunk}
+"""
+
+
+class FinalSummaryPromptStrategy:
+    """
+    終了時サマリ用プロンプト戦略
+
+    責務:
+    - アーカイブ・アナリストとしてのシステムプロンプト提供
+    - 全発言テキストから包括的サマリを生成するユーザープロンプト構築
+    """
+
+    @property
+    def system_prompt(self) -> str:
+        """終了時サマリ用システムプロンプト"""
+        return """
+あなたは、会話全体を俯瞰して包括的なサマリを生成する「アーカイブ・アナリスト」です。
+提供された全発言テキストを分析し、会話全体の構造を抽出してください。
+
+# 🚨 禁止事項（厳格な制約）
+- 修正内容の報告（「〜を削除しました」「〜を補正しました」等）は出力しないこと。
+- 挨拶、前置き、思考の過程（Chain of Thought）を出力しないこと。
+- 指定された「出力フォーマット」以外のテキストを含めないこと。
+
+# 1. 音声認識ノイズの補正
+入力テキストは音声認識（ASR）の結果であり、同音異義語の誤変換や不自然な言い回しが含まれます。
+**文字通りに記録せず、文脈から判断して正しい日本語・専門用語に修正して**記録してください。
+- 例: "機工が変わる" → "気候が変わる" / "機構が変わる"（文脈で判断）
+- 例: "えー、あー、" → 削除
+
+# 2. 会話の性質に応じた構造化
+発言パターンと内容から会話の性質を推定し、適切な構造化を行ってください：
+- **会議・打ち合わせ**: 決定事項、ToDo、議論ポイントを明示
+- **授業・講義**: 主要トピック、重要概念、例示を階層化
+- **雑談・フリートーク**: 話題の流れと転換点を記録
+- **インタビュー**: 質問と回答の対応関係を明確化
+- **プレゼンテーション**: 論理構造と主張を抽出
+
+# 出力フォーマット
+必ず以下のMarkdown形式のみを出力してください。
+
+## 📋 会話の概要
+(会話全体を2-3行で要約。会話の性質も簡潔に含める)
+
+## 🌳 トピック・ツリー
+(会話全体を階層構造で表現。話題ごとに適切な粒度で分割)
+- **メイントピック1**
+  - サブトピック1-1
+    - [結論/要点] 〇〇
+    - [ToDo] 〇〇さんが対応（会議の場合）
+  - サブトピック1-2
+- **メイントピック2**
+  - サブトピック2-1
+
+## 💡 重要ポイント
+(決定事項、アクションアイテム、重要な発言を箇条書き。会話性質に応じて柔軟に)
+- [決定] 〇〇に決定
+- [ToDo] 〇〇さんが〇〇を調査（期限: 〇〇）
+- [疑問] 〇〇について未解決
+
+## 🔑 キーワード
+(後から検索する際に有用なキーワードを5-10個抽出)
+`キーワード1`, `キーワード2`, `キーワード3`, ...
+"""
+
+    def build_user_prompt(self, session: TranscriptionSession) -> str:
+        """
+        終了時サマリ用のユーザープロンプトを構築
+
+        Args:
+            session: 文字起こしセッション（全セグメントを含む）
+
+        Returns:
+            str: 構築されたユーザープロンプト
+        """
+        # 全セグメントをタイムスタンプ付きで時系列順に結合
+        full_transcript = "\n".join(
+            f"[{i + 1}] {segment.start_time.strftime('%H:%M:%S')} {segment.text}"
+            for i, segment in enumerate(session.segments)
+        )
+
+        return f"""
+以下は、会話の全文です（音声認識生データ・誤字含む）。
+会話全体を俯瞰して、包括的なサマリを生成してください。
+
+【全発言テキスト】
+{full_transcript}
 """

@@ -247,14 +247,17 @@ class StreamScribeApp:
                     f"{Fore.YELLOW}Warning: Transcriber thread did not stop cleanly{Style.RESET_ALL}"
                 )
 
+            # 終了時サマリの生成
             if self.summarizer:
                 print(f"{Fore.CYAN}Generating final summary...{Style.RESET_ALL}")
-                final_summary = self.summarizer.stop(wait_for_final=True)
+                # リアルタイムサマリ処理を破棄し、終了時サマリを生成
+                final_summary = self.summarizer.stop(session=self.session)
                 self.summarizer.join(timeout=SUMMARIZER_SHUTDOWN_TIMEOUT_SEC)
         else:
             self.transcriber.stop(wait_for_queue=False)
             if self.summarizer:
-                self.summarizer.stop(wait_for_final=False)
+                # サマリ生成せずに即座に終了
+                self.summarizer.stop(session=None)
                 self.summarizer.join(timeout=FAST_SHUTDOWN_TIMEOUT_SEC)
             self.transcriber.join(timeout=FAST_SHUTDOWN_TIMEOUT_SEC)
 

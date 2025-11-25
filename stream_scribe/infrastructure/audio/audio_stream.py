@@ -144,9 +144,10 @@ class AudioStream:
     def _audio_processing_loop(self) -> None:
         """音声処理ループ（別スレッドで実行）"""
         for chunk in self.audio_source.stream():
-            if not self._running:
+            if self._running:
+                self.process_chunk(chunk)
+            else:
                 break
-            self.process_chunk(chunk)
 
         # ストリーム終了時に録音中の場合は停止
         if self.state_machine.is_recording:

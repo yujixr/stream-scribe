@@ -71,17 +71,15 @@ class Transcriber(threading.Thread):
         self, audio: np.ndarray, start_time: datetime, end_time: datetime
     ) -> None:
         """音声データをキューに追加"""
-        self.queue.put((audio, start_time, end_time))
+        if self.running:
+            self.queue.put((audio, start_time, end_time))
 
     def run(self) -> None:
         """文字起こしループ"""
-        while True:
+        while self.running or not self.queue.empty():
             try:
                 data = self.queue.get(timeout=0.5)
             except queue.Empty:
-                # runningがFalseなら終了
-                if not self.running:
-                    break
                 continue
 
             # データを展開
@@ -200,13 +198,13 @@ class Transcriber(threading.Thread):
         Args:
             wait_for_queue: Trueの場合、キューが空になるまで処理を続ける
         """
+        # スレッド停止フラグを立てる（新規追加を防ぐ）
+        self.running = False
+
         if not wait_for_queue:
             # キューをクリアして残タスクを破棄
-            while True:
-                try:
+            try:
+                while True:
                     self.queue.get_nowait()
-                except queue.Empty:
-                    break
-
-        # スレッド停止フラグを立てる
-        self.running = False
+            except queue.Empty:
+                pass
