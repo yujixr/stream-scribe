@@ -141,7 +141,6 @@ BANNED_PHRASES = [
     # Whisper v3特有の幻覚（無音時）
     "ブーブー",
     "ブーバー",
-    "BGM",
     "♪",
 ]
 

@@ -70,18 +70,55 @@ class StreamScribeApp:
         file_path: str | None = None,
         enable_summary: bool = True,
     ):
-        self.api_key = api_key
-        self.device_id = device_id
         self.file_path = file_path
-        self.enable_summary = enable_summary
 
-        # コンポーネント（run()で初期化）
-        self.session: TranscriptionSession | None = None
-        self.display: StatusDisplay | None = None
-        self.vad: VADDetector | None = None
-        self.transcriber: Transcriber | None = None
+        # 1. VAD初期化
+        print(f"{Fore.CYAN}Initializing VAD...{Style.RESET_ALL}")
+        self.vad = VADDetector()
+        print(f"{Fore.GREEN}VAD ready.{Style.RESET_ALL}\n")
+
+        # 2. セッション初期化
+        self.session = TranscriptionSession()
+
+        # 3. DisplayFormatter初期化
+        formatter = DisplayFormatter()
+        self.display = StatusDisplay(formatter)
+
+        # 4. RealtimeSummarizer初期化（enable_summaryがTrueかつAPIキーが存在する場合のみ）
         self.summarizer: RealtimeSummarizer | None = None
-        self.audio_stream: AudioStream | None = None
+        if enable_summary and api_key:
+            self.summarizer = RealtimeSummarizer(
+                on_summary=self.on_summary,
+                on_error=self.on_error,
+                api_key=api_key,
+            )
+            self.summarizer.start()
+
+        # 5. HallucinationFilter初期化
+        hallucination_filter = HallucinationFilter(banned_phrases=BANNED_PHRASES)
+
+        # 6. Transcriber初期化（selfのイベントハンドラを使用）
+        self.transcriber = Transcriber(
+            on_segment=self.on_segment,
+            on_error=self.on_error,
+            hallucination_filter=hallucination_filter,
+        )
+        self.transcriber.start()
+
+        # 7. AudioSource初期化（ファイル入力またはマイク入力）
+        audio_source: AudioSource
+        if file_path:
+            audio_source = FileAudioSource(file_path=file_path)
+        else:
+            audio_source = MicrophoneAudioSource(device_id=device_id)
+
+        # 8. AudioStream初期化（selfのイベントハンドラを使用）
+        self.audio_stream = AudioStream(
+            vad=self.vad,
+            transcriber=self.transcriber,
+            on_status_update=self.on_audio_status_update,
+            audio_source=audio_source,
+        )
 
     def print_banner(self) -> None:
         """起動バナー表示"""
@@ -112,9 +149,6 @@ class StreamScribeApp:
         3. 要約スレッドへの送信（有効時のみ）
         4. ストリーム処理完了通知
         """
-        if not self.session or not self.display:
-            return
-
         # 1. セッションに記録
         self.session.add_segment(segment)
 
@@ -125,35 +159,33 @@ class StreamScribeApp:
         if self.summarizer:
             self.summarizer.add_segment(segment.text)
 
-        # 4. ストリーム処理完了を通知
-        if (
-            self.audio_stream
-            and self.transcriber
-            and not self.transcriber.is_processing()
-        ):
-            self.audio_stream.is_transcribing = False
+    def on_summary(self, summary: str) -> None:
+        """
+        要約生成時のイベントハンドラ
+
+        処理:
+        1. セッションに保存
+        2. 画面表示
+        """
+        self.session.set_structured_summary(summary)
+        self.display.show_summary(summary)
 
     def on_error(
         self, error_time: datetime, error_message: str, exception: Exception | None
     ) -> None:
         """エラー発生時のイベントハンドラ"""
         # セッションにエラーを記録
-        if self.session:
-            error = TranscriptionError(timestamp=error_time, message=error_message)
-            self.session.add_error(error)
+        error = TranscriptionError(timestamp=error_time, message=error_message)
+        self.session.add_error(error)
 
-        if self.display:
-            self.display.show_error(error_time, error_message, exception)
+        self.display.show_error(error_time, error_message, exception)
 
     def on_audio_status_update(self, event: AudioStreamStatusEvent) -> None:
         """AudioStreamのステータス更新イベントハンドラ"""
-        if not self.display:
-            return
-
         self.display.update_status(
             probability=event.probability,
             is_recording=event.is_recording,
-            is_transcribing=event.is_transcribing,
+            is_transcribing=self.transcriber.is_transcribing,
             is_summarizing=self.summarizer.is_summarizing if self.summarizer else False,
             recording_elapsed=event.recording_elapsed,
             speech_chunks=event.speech_chunks,
@@ -175,18 +207,17 @@ class StreamScribeApp:
             graceful: Trueなら残り処理を完了させてから保存、Falseなら即座に終了
         """
         # 1. ディスプレイをクリア
-        if self.display:
-            self.display.clear()
+        self.display.clear()
 
         # 2. Transcriber/Summarizer停止
         final_summary = self._stop_workers(graceful)
 
-        # 3. セッション保存
-        self._save_session(final_summary)
-
-        # 4. 最終サマリ表示
-        if final_summary and self.display:
+        # 3. 最終サマリ表示
+        if final_summary:
             self.display.show_summary(final_summary)
+
+        # 4. セッション保存
+        self._save_session(final_summary)
 
     def _stop_workers(self, graceful: bool) -> str | None:
         """
@@ -198,9 +229,6 @@ class StreamScribeApp:
         Returns:
             str | None: 最終サマリ（graceful=Trueの場合のみ）
         """
-        if not self.transcriber:
-            return None
-
         final_summary = None
 
         if graceful:
@@ -233,9 +261,6 @@ class StreamScribeApp:
         Args:
             final_summary: 最終サマリ（Noneでなければセッションに設定）
         """
-        if not self.session:
-            return
-
         if final_summary:
             self.session.set_structured_summary(final_summary)
 
@@ -247,55 +272,7 @@ class StreamScribeApp:
         """メインエントリーポイント"""
         self.print_banner()
 
-        # 1. VAD初期化
-        print(f"{Fore.CYAN}Initializing VAD...{Style.RESET_ALL}")
-        self.vad = VADDetector()
-        print(f"{Fore.GREEN}VAD ready.{Style.RESET_ALL}\n")
-
-        # 2. セッション初期化
-        self.session = TranscriptionSession()
-
-        # 3. DisplayFormatter初期化
-        formatter = DisplayFormatter()
-        self.display = StatusDisplay(formatter)
-
-        # 4. RealtimeSummarizer初期化（enable_summaryがTrueかつAPIキーが存在する場合のみ）
-        if self.enable_summary and self.api_key:
-            self.summarizer = RealtimeSummarizer(
-                on_summary_update=self.session.set_structured_summary,
-                on_summary_display=self.display.show_summary,
-                on_error=self.on_error,
-                api_key=self.api_key,
-            )
-            self.summarizer.start()
-
-        # 5. HallucinationFilter初期化
-        hallucination_filter = HallucinationFilter(banned_phrases=BANNED_PHRASES)
-
-        # 6. Transcriber初期化（selfのイベントハンドラを使用）
-        self.transcriber = Transcriber(
-            on_segment=self.on_segment,
-            on_error=self.on_error,
-            hallucination_filter=hallucination_filter,
-        )
-        self.transcriber.start()
-
-        # 7. AudioSource初期化（ファイル入力またはマイク入力）
-        audio_source: AudioSource
-        if self.file_path:
-            audio_source = FileAudioSource(file_path=self.file_path)
-        else:
-            audio_source = MicrophoneAudioSource(device_id=self.device_id)
-
-        # 8. AudioStream初期化（selfのイベントハンドラを使用）
-        self.audio_stream = AudioStream(
-            vad=self.vad,
-            transcriber=self.transcriber,
-            on_status_update=self.on_audio_status_update,
-            audio_source=audio_source,
-        )
-
-        # 8. ストリーム開始と入力監視
+        # ストリーム開始と入力監視
         print(
             f"{Fore.GREEN}🎙️  Listening... (Ctrl+C to stop, Ctrl+D for fast exit){Style.RESET_ALL}\n"
         )

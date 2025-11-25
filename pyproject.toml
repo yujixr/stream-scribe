@@ -1,6 +1,6 @@
 [project]
 name = "stream-scribe"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Real-time speech transcription and conversation structuring tool using Whisper and Claude"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -22,6 +22,7 @@ dev = [
     "pytest>=9.0.1",
     "pytest-cov>=7.0.0",
     "ruff>=0.14.6",
+    "setuptools-scm>=9.2.2",
     "types-requests>=2.32.4.20250913",
 ]
 
@@ -34,3 +35,11 @@ warn_unused_ignores = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.setuptools_scm]
+version_file = "stream_scribe/_version.py"
+fallback_version = "0.0.0.dev0"
+
+[build-system]
+requires = ["setuptools>=64", "setuptools_scm>=8"]
+build-backend = "setuptools.build_meta"

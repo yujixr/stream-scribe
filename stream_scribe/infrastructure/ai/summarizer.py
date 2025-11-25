@@ -35,8 +35,7 @@ class RealtimeSummarizer(threading.Thread):
 
     def __init__(
         self,
-        on_summary_update: Callable[[str], None],
-        on_summary_display: Callable[[str], None],
+        on_summary: Callable[[str], None],
         on_error: Callable[[datetime, str, Exception | None], None],
         api_key: str,
         model: str = SUMMARY_MODEL,
@@ -46,8 +45,7 @@ class RealtimeSummarizer(threading.Thread):
         self.running = True
         self.model = model
         self.api_key = api_key
-        self.on_summary_update = on_summary_update  # サマリ更新時のコールバック
-        self.on_summary_display = on_summary_display  # サマリ表示コールバック
+        self.on_summary = on_summary  # サマリ生成時のコールバック
         self.on_error = on_error  # エラーコールバック
 
         # 議事録の状態保持
@@ -56,13 +54,28 @@ class RealtimeSummarizer(threading.Thread):
 
         # バッファリング設定
         self.text_buffer: list[str] = []
-        self.buffer_char_count = 0
         self.trigger_threshold = SUMMARY_TRIGGER_THRESHOLD
+        self._buffer_lock = threading.Lock()  # バッファ操作の排他制御
 
     def add_segment(self, text: str) -> None:
-        """新しいテキストセグメントを追加"""
+        """
+        新しいテキストセグメントを追加
+
+        Note: バッファ更新は即座に行い、処理トリガーをキューに送信
+        これにより呼び出し元とバッファ状態が同期する
+        """
         if self.running and text:
-            self.queue.put(text)
+            with self._buffer_lock:
+                self.text_buffer.append(text)
+
+            # 処理トリガー用のシグナルをキューに送信
+            self.queue.put("")
+
+    @property
+    def buffer_char_count(self) -> int:
+        """バッファ内の文字数を取得"""
+        with self._buffer_lock:
+            return sum(len(text) for text in self.text_buffer)
 
     def _process_buffer(self) -> str | None:
         """
@@ -71,12 +84,13 @@ class RealtimeSummarizer(threading.Thread):
         Returns:
             str | None: 生成された要約 or None
         """
-        if not self.text_buffer:
-            return None
+        # バッファを取得してクリア
+        with self._buffer_lock:
+            if not self.text_buffer:
+                return None
 
-        # バッファを結合
-        chunk_text = " ".join(self.text_buffer)
-        self.text_buffer = []
+            chunk_text = " ".join(self.text_buffer)
+            self.text_buffer = []
 
         self.is_summarizing = True
         try:
@@ -131,22 +145,18 @@ class RealtimeSummarizer(threading.Thread):
     def run(self) -> None:
         while self.running:
             try:
-                # 終了フラグ確認のためタイムアウト付きget
-                text = self.queue.get(timeout=SUMMARY_QUEUE_GET_TIMEOUT_SEC)
+                # 処理トリガーを待つ（終了フラグ確認のためタイムアウト付き）
+                self.queue.get(timeout=SUMMARY_QUEUE_GET_TIMEOUT_SEC)
 
-                self.text_buffer.append(text)
-                self.buffer_char_count += len(text)
+                # バッファの状態をチェック（add_segmentで既に更新済み）
+                should_process = self.buffer_char_count >= self.trigger_threshold
 
                 # 閾値を超えたら要約を実行
-                if self.buffer_char_count >= self.trigger_threshold:
+                if should_process:
                     summary = self._process_buffer()
-                    self.buffer_char_count = 0
 
                     if summary:
-                        # 表示コールバック
-                        self.on_summary_display(summary)
-                        # セッション保存コールバック
-                        self.on_summary_update(summary)
+                        self.on_summary(summary)
 
             except queue.Empty:
                 continue
@@ -169,11 +179,10 @@ class RealtimeSummarizer(threading.Thread):
         if not wait_for_final:
             return None
 
-        # キューに残っているテキストをバッファに移動
-        while not self.queue.empty():
+        # キューをクリア
+        while True:
             try:
-                text = self.queue.get_nowait()
-                self.text_buffer.append(text)
+                self.queue.get_nowait()
             except queue.Empty:
                 break
 

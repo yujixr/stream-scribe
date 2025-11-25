@@ -44,9 +44,7 @@ class Transcriber(threading.Thread):
         model_name: str = WHISPER_MODEL,
     ) -> None:
         super().__init__(daemon=True)
-        self.queue: queue.Queue[
-            tuple[np.ndarray, datetime, datetime, Callable[[], None]]
-        ] = queue.Queue()
+        self.queue: queue.Queue[tuple[np.ndarray, datetime, datetime]] = queue.Queue()
         self.running = True
         self._processing = False  # 現在処理中かどうか
         self.model_name = model_name
@@ -70,28 +68,24 @@ class Transcriber(threading.Thread):
             )
 
     def add_audio(
-        self,
-        audio: np.ndarray,
-        start_time: datetime,
-        end_time: datetime,
-        completion_callback: Callable[[], None],
+        self, audio: np.ndarray, start_time: datetime, end_time: datetime
     ) -> None:
         """音声データをキューに追加"""
-        self.queue.put((audio, start_time, end_time, completion_callback))
+        self.queue.put((audio, start_time, end_time))
 
     def run(self) -> None:
         """文字起こしループ"""
-        while self.running or not self.queue.empty():
+        while True:
             try:
                 data = self.queue.get(timeout=0.5)
             except queue.Empty:
-                # runningがFalseでキューも空なら終了
+                # runningがFalseなら終了
                 if not self.running:
                     break
                 continue
 
             # データを展開
-            audio, recording_start, recording_end, completion_callback = data
+            audio, recording_start, recording_end = data
 
             # リトライ戦略を使用した文字起こし処理
             self._processing = True
@@ -99,9 +93,6 @@ class Transcriber(threading.Thread):
                 self._process_audio(audio, recording_start, recording_end)
             finally:
                 self._processing = False
-
-            # 処理完了コールバックを呼ぶ
-            completion_callback()
 
     def _process_audio(
         self, audio: np.ndarray, recording_start: datetime, recording_end: datetime
@@ -192,14 +183,15 @@ class Transcriber(threading.Thread):
                     )
                 return
 
-    def is_processing(self) -> bool:
+    @property
+    def is_transcribing(self) -> bool:
         """
-        現在処理中のタスクがあるかどうかを返す
+        文字起こし中かどうか（キュー待ち + 処理中）
 
         Returns:
             bool: キューにタスクがあるか、処理中の場合True
         """
-        return self._processing or not self.queue.empty()
+        return self._processing or self.queue.qsize() > 0
 
     def stop(self, wait_for_queue: bool = False) -> None:
         """
@@ -210,7 +202,7 @@ class Transcriber(threading.Thread):
         """
         if not wait_for_queue:
             # キューをクリアして残タスクを破棄
-            while not self.queue.empty():
+            while True:
                 try:
                     self.queue.get_nowait()
                 except queue.Empty:

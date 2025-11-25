@@ -173,4 +173,7 @@ poetry.toml
 # LSP config files
 pyrightconfig.json
 
+# setuptools_scm version file
+stream_scribe/_version.py
+
 # End of https://www.toptal.com/developers/gitignore/api/python

@@ -34,7 +34,6 @@ class AudioStreamStatusEvent:
 
     probability: float  # VAD確率
     is_recording: bool  # 録音中かどうか
-    is_transcribing: bool  # 文字起こし中かどうか
     recording_elapsed: float  # 録音経過時間（秒）
     speech_chunks: int  # 音声チャンク数
 
@@ -70,9 +69,6 @@ class AudioStream:
 
         # VAD状態遷移ロジック（委譲）
         self.state_machine = VadStateMachine()
-
-        # 外部ステータス（Transcriberの処理状態）
-        self.is_transcribing = False
 
         # 録音タイムスタンプ
         self.recording_start: datetime | None = None
@@ -119,7 +115,6 @@ class AudioStream:
         status_event = AudioStreamStatusEvent(
             probability=probability,
             is_recording=self.state_machine.is_recording,
-            is_transcribing=self.is_transcribing,
             recording_elapsed=recording_elapsed,
             speech_chunks=self.state_machine.speech_chunks,
         )
@@ -139,24 +134,14 @@ class AudioStream:
             # numpy配列に変換
             audio = np.concatenate(self.recording_buffer)
 
-            self.is_transcribing = True
-
-            # Transcriberに送信（録音開始/終了時刻と処理完了コールバックを含む）
-            self.transcriber.add_audio(
-                audio, self.recording_start, recording_end, self._complete_processing
-            )
+            # Transcriberに送信（録音開始/終了時刻を含む）
+            self.transcriber.add_audio(audio, self.recording_start, recording_end)
 
         # リセット
         self.recording_buffer = []
         self.recording_start = None
         self.recording_start_mono = None
         self.vad.reset_states()
-
-    def _complete_processing(self) -> None:
-        """処理完了を通知（Transcriberのコールバックから呼ばれる）"""
-        # キューが空の場合のみis_transcribingをFalseにする
-        if not self.transcriber.is_processing():
-            self.is_transcribing = False
 
     def _audio_processing_loop(self) -> None:
         """音声処理ループ（別スレッドで実行）"""
@@ -170,11 +155,10 @@ class AudioStream:
             self._stop_recording()
 
         # 音声入力終了後も書き起こし処理中はステータス更新を継続
-        while self._running and self.transcriber.is_processing():
+        while self._running and self.transcriber.is_transcribing:
             status_event = AudioStreamStatusEvent(
                 probability=0.0,
                 is_recording=False,
-                is_transcribing=self.is_transcribing,
                 recording_elapsed=0.0,
                 speech_chunks=0,
             )
