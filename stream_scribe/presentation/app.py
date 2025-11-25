@@ -14,6 +14,7 @@ from datetime import datetime
 from colorama import Fore, Style  # type: ignore[import-untyped]
 from colorama import init as colorama_init
 
+from stream_scribe import __version__
 from stream_scribe.domain.constants import (
     BANNED_PHRASES,
     CHUNK_MS,
@@ -130,9 +131,11 @@ class StreamScribeApp:
 
     def print_banner(self) -> None:
         """起動バナー表示"""
+        # バージョン文字列の表示：.dev以降をカット
+        version_display = __version__.split(".dev")[0] if ".dev" in __version__ else __version__
         banner = f"""
 {Fore.CYAN}╔══════════════════════════════════════════╗
-║       Stream Scribe v1.0                 ║
+║       Stream Scribe v{version_display:<18}  ║
 ║  Real-time Conversation Recorder         ║
 ╚══════════════════════════════════════════╝{Style.RESET_ALL}
 
