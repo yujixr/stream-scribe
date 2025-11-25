@@ -6,6 +6,7 @@ Stream Scribe - Summarizer Module
 
 import queue
 import threading
+import time
 from datetime import datetime
 from typing import Callable
 
@@ -16,6 +17,7 @@ from stream_scribe.domain.constants import (
     SUMMARY_MAX_TOKENS,
     SUMMARY_MODEL,
     SUMMARY_QUEUE_GET_TIMEOUT_SEC,
+    SUMMARY_SILENCE_TIMEOUT_SEC,
     SUMMARY_TRIGGER_THRESHOLD,
 )
 from stream_scribe.infrastructure.ai.prompts import SummaryPromptBuilder
@@ -55,7 +57,11 @@ class RealtimeSummarizer(threading.Thread):
         # バッファリング設定
         self.text_buffer: list[str] = []
         self.trigger_threshold = SUMMARY_TRIGGER_THRESHOLD
+        self.silence_timeout = SUMMARY_SILENCE_TIMEOUT_SEC
         self._buffer_lock = threading.Lock()  # バッファ操作の排他制御
+
+        # 最後のセグメント追加時刻（無音検出用）
+        self.last_segment_time: float | None = None
 
     def add_segment(self, text: str) -> None:
         """
@@ -67,6 +73,7 @@ class RealtimeSummarizer(threading.Thread):
         if self.running and text:
             with self._buffer_lock:
                 self.text_buffer.append(text)
+                self.last_segment_time = time.monotonic()
 
             # 処理トリガー用のシグナルをキューに送信
             self.queue.put("")
@@ -95,9 +102,14 @@ class RealtimeSummarizer(threading.Thread):
         self.is_summarizing = True
         try:
             summary = self._call_claude(chunk_text)
-            return summary
+        except Exception as e:
+            # Claude API呼び出しエラーをコールバック経由で通知
+            self.on_error(datetime.now(), "Summary generation failed", e)
+            summary = None
         finally:
             self.is_summarizing = False
+
+        return summary
 
     def _call_claude(self, new_text_chunk: str) -> str | None:
         """
@@ -108,61 +120,62 @@ class RealtimeSummarizer(threading.Thread):
 
         Returns:
             str | None: 生成された要約 or None
+
+        Raises:
+            Exception: API呼び出しエラー（呼び出し元で処理）
         """
-        try:
-            client = Anthropic(api_key=self.api_key)
+        client = Anthropic(api_key=self.api_key)
 
-            # プロンプトビルダーを使用してプロンプトを構築
-            system_prompt = SummaryPromptBuilder.SYSTEM_PROMPT
-            user_content = SummaryPromptBuilder.build_user_prompt(
-                current_summary=self.current_summary,
-                new_text_chunk=new_text_chunk,
-            )
+        # プロンプトビルダーを使用してプロンプトを構築
+        system_prompt = SummaryPromptBuilder.SYSTEM_PROMPT
+        user_content = SummaryPromptBuilder.build_user_prompt(
+            current_summary=self.current_summary,
+            new_text_chunk=new_text_chunk,
+        )
 
-            # Claude API呼び出し
-            message = client.messages.create(
-                model=self.model,
-                max_tokens=SUMMARY_MAX_TOKENS,
-                temperature=0.0,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_content}],
-            )
+        # Claude API呼び出し
+        message = client.messages.create(
+            model=self.model,
+            max_tokens=SUMMARY_MAX_TOKENS,
+            temperature=0.0,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_content}],
+        )
 
-            # TextBlockの場合のみtextを取得
-            if message.content and len(message.content) > 0:
-                first_block = message.content[0]
-                if isinstance(first_block, TextBlock):
-                    updated_summary = first_block.text.strip()
-                    # 内部状態を更新
-                    self.current_summary = updated_summary
-                    return updated_summary
-            return None
-        except Exception as e:
-            # エラーをコールバック経由で通知
-            self.on_error(datetime.now(), "Summary generation failed", e)
-            return None
+        # TextBlockの場合のみtextを取得
+        if message.content and len(message.content) > 0:
+            first_block = message.content[0]
+            if isinstance(first_block, TextBlock):
+                updated_summary = first_block.text.strip()
+                # 内部状態を更新
+                self.current_summary = updated_summary
+                return updated_summary
+        return None
 
     def run(self) -> None:
         while self.running:
             try:
                 # 処理トリガーを待つ（終了フラグ確認のためタイムアウト付き）
                 self.queue.get(timeout=SUMMARY_QUEUE_GET_TIMEOUT_SEC)
-
-                # バッファの状態をチェック（add_segmentで既に更新済み）
-                should_process = self.buffer_char_count >= self.trigger_threshold
-
-                # 閾値を超えたら要約を実行
-                if should_process:
-                    summary = self._process_buffer()
-
-                    if summary:
-                        self.on_summary(summary)
-
             except queue.Empty:
-                continue
-            except Exception:
-                self.is_summarizing = False
-                continue
+                pass  # タイムアウトチェックのため続行
+
+            # バッファの状態をチェック（add_segmentで既に更新済み）
+            char_count = self.buffer_char_count
+            should_process_by_threshold = char_count >= self.trigger_threshold
+
+            # 無音タイムアウトチェック（バッファにテキストがある場合のみ）
+            should_process_by_timeout = False
+            if char_count > 0 and self.last_segment_time is not None:
+                elapsed = time.monotonic() - self.last_segment_time
+                should_process_by_timeout = elapsed >= self.silence_timeout
+
+            # 閾値超過または無音タイムアウトで要約を実行
+            if should_process_by_threshold or should_process_by_timeout:
+                summary = self._process_buffer()
+
+                if summary:
+                    self.on_summary(summary)
 
     def stop(self, wait_for_final: bool = False) -> str | None:
         """
