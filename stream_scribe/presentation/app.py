@@ -7,6 +7,7 @@ Stream Scribe - CLI Application
 import argparse
 import os
 import sys
+import time
 import traceback
 from datetime import datetime
 
@@ -22,6 +23,7 @@ from stream_scribe.domain.constants import (
     SUMMARIZER_SHUTDOWN_TIMEOUT_SEC,
     SUMMARY_MODEL,
     TRANSCRIBER_SHUTDOWN_TIMEOUT_SEC,
+    TRANSCRIPTION_PROGRESS_POLL_INTERVAL_SEC,
     VAD_END_THRESHOLD,
     VAD_START_THRESHOLD,
     WHISPER_MODEL,
@@ -224,7 +226,19 @@ class StreamScribeApp:
         final_summary = None
 
         if graceful:
-            print(f"{Fore.CYAN}Processing remaining audio...{Style.RESET_ALL}")
+            # 残りのキューを処理（進捗を表示）
+            if self.transcriber.is_transcribing:
+                print(f"{Fore.CYAN}Processing remaining audio...{Style.RESET_ALL}")
+                last_remaining = -1
+                while self.transcriber.is_transcribing:
+                    remaining = self.transcriber.queue.qsize()
+                    if remaining > 0 and remaining != last_remaining:
+                        print(
+                            f"{Fore.YELLOW}  Transcribing... ({remaining} segments remaining){Style.RESET_ALL}"
+                        )
+                        last_remaining = remaining
+                    time.sleep(TRANSCRIPTION_PROGRESS_POLL_INTERVAL_SEC)
+
             self.transcriber.stop(wait_for_queue=True)
             self.transcriber.join(timeout=TRANSCRIBER_SHUTDOWN_TIMEOUT_SEC)
 
@@ -273,8 +287,14 @@ class StreamScribeApp:
             with self.audio_stream as stream:
                 # ファイル/マイク共通：終了シグナルを待つ
                 # ファイル入力時は処理完了も終了条件に含める
+                # AudioStreamが終了 かつ Transcriberの処理も完了した時点で終了
                 stop_condition = (
-                    (lambda: not stream.is_alive()) if self.file_path else None
+                    (
+                        lambda: not stream.is_alive()
+                        and not self.transcriber.is_transcribing
+                    )
+                    if self.file_path
+                    else None
                 )
                 completed = InputHandler.wait_for_exit_signal(stop_condition)
                 if completed:
