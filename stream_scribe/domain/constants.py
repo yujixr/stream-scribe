@@ -201,7 +201,12 @@ SUMMARIZER_SHUTDOWN_TIMEOUT_SEC = 2.0  # 要約スレッド停止のタイムア
 # ========================================
 # シャットダウン
 FAST_SHUTDOWN_TIMEOUT_SEC = 1.0  # 高速終了時のタイムアウト
+STATUS_UPDATE_MANAGER_SHUTDOWN_TIMEOUT_SEC = (
+    1.0  # ステータス更新マネージャー停止タイムアウト
+)
 
 # UI表示
+STATUS_UPDATE_INTERVAL_SEC = 0.1  # ステータス更新間隔（100ミリ秒）
+INPUT_POLL_INTERVAL_SEC = 0.1  # 入力ポーリング間隔（100ミリ秒）
 MAX_ERROR_DETAIL_LENGTH = 200  # エラー詳細の最大表示文字数
 MAX_TRACEBACK_LENGTH = 500  # トレースバックの最大表示文字数

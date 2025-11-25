@@ -9,12 +9,11 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 
 from stream_scribe.domain.constants import (
-    AUDIO_BLOCK_SEC,
     AUDIO_STREAM_SHUTDOWN_TIMEOUT_SEC,
     MIN_SPEECH_CHUNKS,
     PREROLL_CHUNKS,
@@ -29,8 +28,8 @@ from stream_scribe.infrastructure.ml.transcriber import Transcriber
 
 
 @dataclass
-class AudioStreamStatusEvent:
-    """音声ストリームの状態イベント"""
+class AudioStreamStatus:
+    """音声ストリームの状態"""
 
     probability: float  # VAD確率
     is_recording: bool  # 録音中かどうか
@@ -45,7 +44,6 @@ class AudioStream:
     機能:
     - リングバッファ（プリロール）
     - VAD検知とステートマシン
-    - リアルタイム可視化
     - 音声ソースの抽象化（依存性注入）
     """
 
@@ -53,12 +51,10 @@ class AudioStream:
         self,
         vad: VADDetector,
         transcriber: Transcriber,
-        on_status_update: Callable[[AudioStreamStatusEvent], None],
         audio_source: AudioSource,
     ):
         self.vad = vad
         self.transcriber = transcriber
-        self.on_status_update = on_status_update
         self.audio_source = audio_source
 
         # プリロール用リングバッファ（collections.deque）
@@ -76,17 +72,33 @@ class AudioStream:
             None  # time.time()ベース（経過時間計算用）
         )
 
+        # 現在のVAD確率（状態取得用）
+        self._current_probability = 0.0
+
         # スレッド制御
         self._running = False
         self._thread: threading.Thread | None = None
+
+    def get_status(self) -> AudioStreamStatus:
+        """現在の状態を取得"""
+        recording_elapsed = 0.0
+        if self.state_machine.is_recording and self.recording_start_mono:
+            recording_elapsed = time.time() - self.recording_start_mono
+
+        return AudioStreamStatus(
+            probability=self._current_probability,
+            is_recording=self.state_machine.is_recording,
+            recording_elapsed=recording_elapsed,
+            speech_chunks=self.state_machine.speech_chunks,
+        )
 
     def process_chunk(self, chunk: np.ndarray) -> None:
         """チャンク単位のVAD処理"""
         # VAD推論
         probability = self.vad(chunk)
 
-        # ステータスイベントを発行
-        self._emit_status_event(probability)
+        # 現在の確率を保存
+        self._current_probability = probability
 
         # プリロールバッファに追加
         self.preroll_ring_buffer.append(chunk)
@@ -105,20 +117,6 @@ class AudioStream:
         # 録音中ならデータをバッファへ
         if self.state_machine.is_recording:
             self.recording_buffer.append(chunk)
-
-    def _emit_status_event(self, probability: float) -> None:
-        """ステータスイベントを発行"""
-        recording_elapsed = 0.0
-        if self.state_machine.is_recording and self.recording_start_mono:
-            recording_elapsed = time.time() - self.recording_start_mono
-
-        status_event = AudioStreamStatusEvent(
-            probability=probability,
-            is_recording=self.state_machine.is_recording,
-            recording_elapsed=recording_elapsed,
-            speech_chunks=self.state_machine.speech_chunks,
-        )
-        self.on_status_update(status_event)
 
     def _start_recording(self) -> None:
         """録音開始（プリロールを結合）"""
@@ -153,17 +151,6 @@ class AudioStream:
         # ストリーム終了時に録音中の場合は停止
         if self.state_machine.is_recording:
             self._stop_recording()
-
-        # 音声入力終了後も書き起こし処理中はステータス更新を継続
-        while self._running and self.transcriber.is_transcribing:
-            status_event = AudioStreamStatusEvent(
-                probability=0.0,
-                is_recording=False,
-                recording_elapsed=0.0,
-                speech_chunks=0,
-            )
-            self.on_status_update(status_event)
-            time.sleep(AUDIO_BLOCK_SEC)
 
     def __enter__(self) -> "AudioStream":
         """コンテキストマネージャ開始"""

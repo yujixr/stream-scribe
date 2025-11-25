@@ -32,10 +32,7 @@ from stream_scribe.domain.models import (
     TranscriptionSession,
 )
 from stream_scribe.infrastructure.ai.summarizer import RealtimeSummarizer
-from stream_scribe.infrastructure.audio.audio_stream import (
-    AudioStream,
-    AudioStreamStatusEvent,
-)
+from stream_scribe.infrastructure.audio.audio_stream import AudioStream
 from stream_scribe.infrastructure.audio.sources import (
     AudioSource,
     FileAudioSource,
@@ -47,6 +44,7 @@ from stream_scribe.infrastructure.ml.transcriber import Transcriber
 from stream_scribe.infrastructure.persistence.json_exporter import SessionJsonExporter
 from stream_scribe.presentation.display import DisplayFormatter, StatusDisplay
 from stream_scribe.presentation.input_handler import InputHandler
+from stream_scribe.presentation.status_update_manager import StatusUpdateManager
 
 # Colorama初期化
 colorama_init(autoreset=True)
@@ -112,13 +110,21 @@ class StreamScribeApp:
         else:
             audio_source = MicrophoneAudioSource(device_id=device_id)
 
-        # 8. AudioStream初期化（selfのイベントハンドラを使用）
+        # 8. AudioStream初期化
         self.audio_stream = AudioStream(
             vad=self.vad,
             transcriber=self.transcriber,
-            on_status_update=self.on_audio_status_update,
             audio_source=audio_source,
         )
+
+        # 9. StatusUpdateManager初期化と開始
+        self.status_update_manager = StatusUpdateManager(
+            audio_stream=self.audio_stream,
+            transcriber=self.transcriber,
+            display=self.display,
+            summarizer=self.summarizer,
+        )
+        self.status_update_manager.start()
 
     def print_banner(self) -> None:
         """起動バナー表示"""
@@ -180,23 +186,6 @@ class StreamScribeApp:
 
         self.display.show_error(error_time, error_message, exception)
 
-    def on_audio_status_update(self, event: AudioStreamStatusEvent) -> None:
-        """AudioStreamのステータス更新イベントハンドラ"""
-        self.display.update_status(
-            probability=event.probability,
-            is_recording=event.is_recording,
-            is_transcribing=self.transcriber.is_transcribing,
-            is_summarizing=self.summarizer.is_summarizing if self.summarizer else False,
-            recording_elapsed=event.recording_elapsed,
-            speech_chunks=event.speech_chunks,
-            summary_buffer_count=self.summarizer.buffer_char_count
-            if self.summarizer
-            else 0,
-            summary_threshold=self.summarizer.trigger_threshold
-            if self.summarizer
-            else 0,
-        )
-
     # ========== セッション管理 ==========
 
     def _shutdown(self, graceful: bool = True) -> None:
@@ -206,17 +195,20 @@ class StreamScribeApp:
         Args:
             graceful: Trueなら残り処理を完了させてから保存、Falseなら即座に終了
         """
-        # 1. ディスプレイをクリア
+        # 1. ステータス更新マネージャーを停止
+        self.status_update_manager.stop()
+
+        # 2. ディスプレイをクリア
         self.display.clear()
 
-        # 2. Transcriber/Summarizer停止
+        # 3. Transcriber/Summarizer停止
         final_summary = self._stop_workers(graceful)
 
-        # 3. 最終サマリ表示
+        # 4. 最終サマリ表示
         if final_summary:
             self.display.show_summary(final_summary)
 
-        # 4. セッション保存
+        # 5. セッション保存
         self._save_session(final_summary)
 
     def _stop_workers(self, graceful: bool) -> str | None:

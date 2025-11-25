@@ -9,6 +9,8 @@ import sys
 import time
 from typing import Callable
 
+from stream_scribe.domain.constants import INPUT_POLL_INTERVAL_SEC
+
 
 class InputHandler:
     """
@@ -44,7 +46,9 @@ class InputHandler:
 
             # 標準入力の監視（Ctrl-D検出用）
             if sys.stdin.isatty():
-                ready, _, _ = select.select([sys.stdin], [], [], 0.1)
+                ready, _, _ = select.select(
+                    [sys.stdin], [], [], INPUT_POLL_INTERVAL_SEC
+                )
                 if ready:
                     # 標準入力が読み取り可能
                     try:
@@ -54,4 +58,4 @@ class InputHandler:
                     except EOFError:
                         raise
             else:
-                time.sleep(0.1)
+                time.sleep(INPUT_POLL_INTERVAL_SEC)
