@@ -7,19 +7,18 @@ Stream Scribe - Audio Stream Module
 import threading
 import time
 from collections import deque
-from collections.abc import Generator
-from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 
 from stream_scribe.domain.constants import (
     AUDIO_BLOCK_SEC,
+    AUDIO_STREAM_SHUTDOWN_TIMEOUT_SEC,
     MIN_SPEECH_CHUNKS,
     PREROLL_CHUNKS,
 )
-from stream_scribe.domain.models import AudioStreamStatusEvent
 from stream_scribe.infrastructure.audio.sources import AudioSource
 from stream_scribe.infrastructure.audio.vad_detector import VADDetector
 from stream_scribe.infrastructure.audio.vad_state_machine import (
@@ -29,15 +28,26 @@ from stream_scribe.infrastructure.audio.vad_state_machine import (
 from stream_scribe.infrastructure.ml.transcriber import Transcriber
 
 
+@dataclass
+class AudioStreamStatusEvent:
+    """音声ストリームの状態イベント"""
+
+    probability: float  # VAD確率
+    is_recording: bool  # 録音中かどうか
+    is_transcribing: bool  # 文字起こし中かどうか
+    recording_elapsed: float  # 録音経過時間（秒）
+    speech_chunks: int  # 音声チャンク数
+
+
 class AudioStream:
     """
     リアルタイム音声ストリーム管理
 
-    Features:
-    - リングバッファ (プリロール)
+    機能:
+    - リングバッファ（プリロール）
     - VAD検知とステートマシン
     - リアルタイム可視化
-    - 音声ソースの抽象化 (Dependency Injection)
+    - 音声ソースの抽象化（依存性注入）
     """
 
     def __init__(
@@ -52,7 +62,7 @@ class AudioStream:
         self.on_status_update = on_status_update
         self.audio_source = audio_source
 
-        # プリロール用リングバッファ (collections.deque)
+        # プリロール用リングバッファ（collections.deque）
         self.preroll_ring_buffer: deque[np.ndarray] = deque(maxlen=PREROLL_CHUNKS)
 
         # 録音バッファ
@@ -76,19 +86,19 @@ class AudioStream:
 
     def process_chunk(self, chunk: np.ndarray) -> None:
         """チャンク単位のVAD処理"""
-        # 1. VAD推論
+        # VAD推論
         probability = self.vad(chunk)
 
-        # 2. ステータスイベントを発行
+        # ステータスイベントを発行
         self._emit_status_event(probability)
 
-        # 3. プリロールバッファに追加
+        # プリロールバッファに追加
         self.preroll_ring_buffer.append(chunk)
 
-        # 4. ステートマシンで状態遷移を処理
+        # ステートマシンで状態遷移を処理
         action = self.state_machine.process(probability)
 
-        # 5. アクションに応じた処理
+        # アクションに応じた処理
         if action == VadAction.START_RECORDING:
             self._start_recording()
         elif action == VadAction.STOP_RECORDING:
@@ -96,7 +106,7 @@ class AudioStream:
         elif action == VadAction.RESET_VAD_MODEL:
             self.vad.reset_states()
 
-        # 6. 録音中ならデータをバッファへ
+        # 録音中ならデータをバッファへ
         if self.state_machine.is_recording:
             self.recording_buffer.append(chunk)
 
@@ -116,13 +126,13 @@ class AudioStream:
         self.on_status_update(status_event)
 
     def _start_recording(self) -> None:
-        """録音開始 (プリロールを結合)"""
+        """録音開始（プリロールを結合）"""
         self.recording_start = datetime.now()
         self.recording_start_mono = time.time()
         self.recording_buffer = list(self.preroll_ring_buffer)
 
     def _stop_recording(self) -> None:
-        """録音終了 (Transcriberに送信)"""
+        """録音終了（Transcriberに送信）"""
         recording_end = datetime.now()
 
         if len(self.recording_buffer) > MIN_SPEECH_CHUNKS and self.recording_start:
@@ -144,7 +154,7 @@ class AudioStream:
 
     def _complete_processing(self) -> None:
         """処理完了を通知（Transcriberのコールバックから呼ばれる）"""
-        # キューが空の場合のみ is_transcribing をFalseにする
+        # キューが空の場合のみis_transcribingをFalseにする
         if not self.transcriber.is_processing():
             self.is_transcribing = False
 
@@ -159,7 +169,7 @@ class AudioStream:
         if self.state_machine.is_recording:
             self._stop_recording()
 
-        # 音声入力終了後も文字起こし処理中はステータス更新を継続
+        # 音声入力終了後も書き起こし処理中はステータス更新を継続
         while self._running and self.transcriber.is_processing():
             status_event = AudioStreamStatusEvent(
                 probability=0.0,
@@ -171,42 +181,34 @@ class AudioStream:
             self.on_status_update(status_event)
             time.sleep(AUDIO_BLOCK_SEC)
 
-    @contextmanager
-    def start(self) -> Generator["AudioStream", None, None]:
-        """
-        ストリーム開始
-
-        コンテキストマネージャとして使用:
-        ```
-        with audio_stream.start():
-            # 音声処理が別スレッドで実行される
-            wait_for_exit_signal()
-        ```
-        """
+    def __enter__(self) -> "AudioStream":
+        """コンテキストマネージャ開始"""
         self._running = True
+        self.audio_source.__enter__()
 
-        # AudioSource をコンテキストマネージャで開始
-        with self.audio_source:
-            # 音声処理ループを別スレッドで実行
-            self._thread = threading.Thread(
-                target=self._audio_processing_loop,
-                daemon=True,
-                name="AudioStreamThread",
-            )
-            self._thread.start()
+        # 音声処理ループを別スレッドで実行
+        self._thread = threading.Thread(
+            target=self._audio_processing_loop,
+            daemon=True,
+            name="AudioStreamThread",
+        )
+        self._thread.start()
+        return self
 
-            try:
-                yield self
-            finally:
-                self._running = False
-                if self._thread and self._thread.is_alive():
-                    self._thread.join(timeout=2.0)
-
-    def on_exit(self) -> None:
-        """終了時の処理"""
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """コンテキストマネージャ終了"""
         self._running = False
+
+        # 録音中なら停止
         if self.state_machine.is_recording:
             self._stop_recording()
+
+        # スレッド終了を待つ
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=AUDIO_STREAM_SHUTDOWN_TIMEOUT_SEC)
+
+        # AudioSourceをクリーンアップ
+        self.audio_source.__exit__(exc_type, exc_val, exc_tb)
 
     def is_alive(self) -> bool:
         """音声処理スレッドが実行中かどうかを返す"""

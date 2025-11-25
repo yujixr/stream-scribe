@@ -8,6 +8,19 @@ import re
 from collections.abc import Sequence
 from typing import Any
 
+from stream_scribe.domain.constants import (
+    HALLUCINATION_EXTREME_LOW_LOGPROB_THRESHOLD,
+    HALLUCINATION_LONG_PATTERN_MAX_LENGTH,
+    HALLUCINATION_LONG_PATTERN_MIN_LENGTH,
+    HALLUCINATION_MIN_CHAR_REPETITION,
+    HALLUCINATION_MIN_LONG_PATTERN_REPETITION,
+    HALLUCINATION_MIN_SHORT_PATTERN_REPETITION,
+    HALLUCINATION_MIN_TOKEN_REPETITION,
+    HALLUCINATION_PATTERN_SEARCH_START_POSITIONS,
+    HALLUCINATION_REPETITION_RATIO_THRESHOLD,
+    HALLUCINATION_SHORT_PATTERN_MAX_LENGTH,
+)
+
 
 class HallucinationFilter:
     """
@@ -21,22 +34,6 @@ class HallucinationFilter:
 
     日本語環境での音声認識幻覚に特化した検出ロジック
     """
-
-    # 検出閾値（定数化）
-    MIN_CHAR_REPETITION = 10  # 文字の最小連続回数
-    MIN_SHORT_PATTERN_REPETITION = 5  # 短いパターンの最小繰り返し回数
-    MIN_LONG_PATTERN_REPETITION = 3  # 長いパターンの最小繰り返し回数
-    MIN_TOKEN_REPETITION = 5  # トークンの最小連続回数
-    SHORT_PATTERN_MAX_LENGTH = 10  # 短いパターンの最大長
-    LONG_PATTERN_MIN_LENGTH = 11  # 長いパターンの最小長
-    LONG_PATTERN_MAX_LENGTH = 50  # 長いパターンの最大長
-    PATTERN_SEARCH_START_POSITIONS = (
-        50  # パターン探索の開始位置数（テキスト後半の繰り返しも検出）
-    )
-    REPETITION_RATIO_THRESHOLD = 0.5  # 繰り返しが占める割合の閾値
-
-    # 極端に低いavg_logprobの閾値（明らかな幻覚のみフィルタ）
-    EXTREME_LOW_LOGPROB_THRESHOLD = -1.7
 
     # 日本語句読点パターン（コンパイル済み）
     _JAPANESE_PUNCTUATION_PATTERN = re.compile(r"[。、！？\s]+")
@@ -126,7 +123,7 @@ class HallucinationFilter:
             str | None: 破棄理由 or None
         """
         text_len = len(text)
-        if text_len < self.MIN_CHAR_REPETITION:
+        if text_len < HALLUCINATION_MIN_CHAR_REPETITION:
             return None
 
         consecutive_count = 1
@@ -135,7 +132,7 @@ class HallucinationFilter:
         for char in text[1:]:
             if char == prev_char:
                 consecutive_count += 1
-                if consecutive_count >= self.MIN_CHAR_REPETITION:
+                if consecutive_count >= HALLUCINATION_MIN_CHAR_REPETITION:
                     return f"Character repetition: '{char}' x{consecutive_count}+"
             else:
                 consecutive_count = 1
@@ -162,11 +159,12 @@ class HallucinationFilter:
 
         # パターン長を短いものから長いものへ
         for pattern_len in range(
-            2, min(self.SHORT_PATTERN_MAX_LENGTH + 1, text_len // 3 + 1)
+            2, min(HALLUCINATION_SHORT_PATTERN_MAX_LENGTH + 1, text_len // 3 + 1)
         ):
             # テキストの最初の数箇所をパターン候補として試行
             max_start = min(
-                self.PATTERN_SEARCH_START_POSITIONS, text_len - pattern_len * 3 + 1
+                HALLUCINATION_PATTERN_SEARCH_START_POSITIONS,
+                text_len - pattern_len * 3 + 1,
             )
 
             for start in range(max_start):
@@ -178,11 +176,11 @@ class HallucinationFilter:
 
                 # パターンの出現回数をカウント
                 count = text.count(pattern)
-                if count >= self.MIN_SHORT_PATTERN_REPETITION:
+                if count >= HALLUCINATION_MIN_SHORT_PATTERN_REPETITION:
                     # 繰り返しがテキスト全体の閾値以上を占めるかチェック
                     if (
                         pattern_len * count
-                    ) >= text_len * self.REPETITION_RATIO_THRESHOLD:
+                    ) >= text_len * HALLUCINATION_REPETITION_RATIO_THRESHOLD:
                         return f"Pattern repetition: '{pattern[:30]}...' x{count}"
 
         return None
@@ -204,18 +202,22 @@ class HallucinationFilter:
         if text_len < 60:
             return None
 
-        max_pattern_len = min(self.LONG_PATTERN_MAX_LENGTH, text_len // 3)
+        max_pattern_len = min(HALLUCINATION_LONG_PATTERN_MAX_LENGTH, text_len // 3)
 
         # 5文字刻みでチェック（計算量削減）
-        for pattern_len in range(self.LONG_PATTERN_MIN_LENGTH, max_pattern_len + 1, 5):
+        for pattern_len in range(
+            HALLUCINATION_LONG_PATTERN_MIN_LENGTH, max_pattern_len + 1, 5
+        ):
             # 先頭から1箇所のみチェック
             pattern = text[0:pattern_len]
             if not pattern.strip():
                 continue
 
             count = text.count(pattern)
-            if count >= self.MIN_LONG_PATTERN_REPETITION:
-                if (pattern_len * count) >= text_len * self.REPETITION_RATIO_THRESHOLD:
+            if count >= HALLUCINATION_MIN_LONG_PATTERN_REPETITION:
+                if (
+                    pattern_len * count
+                ) >= text_len * HALLUCINATION_REPETITION_RATIO_THRESHOLD:
                     return f"Long phrase repetition: '{pattern[:30]}...' x{count}"
 
         return None
@@ -240,13 +242,13 @@ class HallucinationFilter:
         tokens = [t for t in tokens if t.strip()]
 
         # 末尾で同じトークンが連続する場合は幻覚
-        if len(tokens) >= self.MIN_TOKEN_REPETITION:
+        if len(tokens) >= HALLUCINATION_MIN_TOKEN_REPETITION:
             last_token = tokens[-1]
             if last_token and all(
                 tokens[-i] == last_token
-                for i in range(1, self.MIN_TOKEN_REPETITION + 1)
+                for i in range(1, HALLUCINATION_MIN_TOKEN_REPETITION + 1)
             ):
-                return f"Token repetition at end: '{last_token}' x{self.MIN_TOKEN_REPETITION}+"
+                return f"Token repetition at end: '{last_token}' x{HALLUCINATION_MIN_TOKEN_REPETITION}+"
 
         return None
 
@@ -372,6 +374,9 @@ class HallucinationFilter:
         Returns:
             str | None: 破棄理由 or None
         """
-        if avg_logprob is not None and avg_logprob < self.EXTREME_LOW_LOGPROB_THRESHOLD:
+        if (
+            avg_logprob is not None
+            and avg_logprob < HALLUCINATION_EXTREME_LOW_LOGPROB_THRESHOLD
+        ):
             return f"Extreme low confidence (avg_logprob={avg_logprob:.2f})"
         return None

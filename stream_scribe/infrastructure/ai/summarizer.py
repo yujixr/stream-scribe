@@ -15,6 +15,7 @@ from anthropic.types import TextBlock
 from stream_scribe.domain.constants import (
     SUMMARY_MAX_TOKENS,
     SUMMARY_MODEL,
+    SUMMARY_QUEUE_GET_TIMEOUT_SEC,
     SUMMARY_TRIGGER_THRESHOLD,
 )
 from stream_scribe.infrastructure.ai.prompts import SummaryPromptBuilder
@@ -131,7 +132,7 @@ class RealtimeSummarizer(threading.Thread):
         while self.running:
             try:
                 # 終了フラグ確認のためタイムアウト付きget
-                text = self.queue.get(timeout=1.0)
+                text = self.queue.get(timeout=SUMMARY_QUEUE_GET_TIMEOUT_SEC)
 
                 self.text_buffer.append(text)
                 self.buffer_char_count += len(text)

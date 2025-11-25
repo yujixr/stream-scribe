@@ -15,11 +15,11 @@ from stream_scribe.domain.constants import MODEL_PATH, SAMPLE_RATE, SILERO_MODEL
 
 class VADDetector:
     """
-    Silero VAD (ONNX) によるリアルタイム音声検知
+    Silero VAD（ONNX）によるリアルタイム音声検知
 
-    Features:
-    - ステートフルLSTM (h, c状態管理)
-    - 512サンプル (32ms) チャンク推論
+    機能:
+    - ステートフルLSTM（h, c状態管理）
+    - 512サンプル（32ms）チャンク推論
     - モデル自動ダウンロード
     """
 
@@ -33,15 +33,15 @@ class VADDetector:
         if auto_download and not model_path.exists():
             self._download_model(model_path)
 
-        # ONNX Runtime セッション (CPU最適化)
+        # ONNX Runtimeセッション（CPU最適化）
         self.session = ort.InferenceSession(
             str(model_path), providers=["CPUExecutionProvider"]
         )
 
-        # LSTM内部状態の初期化 (batch=1, hidden=128)
+        # LSTM内部状態の初期化（batch=1, hidden=128）
         self.reset_states()
 
-        # サンプルレート (ONNXモデルは16000固定)
+        # サンプルレート（ONNXモデルは16000固定）
         self._sr = np.array(SAMPLE_RATE, dtype=np.int64)
 
     @staticmethod
@@ -73,9 +73,9 @@ class VADDetector:
             audio_chunk: (512,) float32 audio data
 
         Returns:
-            probability: 音声確率 (0.0-1.0)
+            probability: 音声確率（0.0-1.0）
         """
-        # 入力のリシェイプ (batch, samples)
+        # 入力のリシェイプ（batch, samples）
         audio_input = audio_chunk.reshape(1, -1)
 
         # ONNX推論
@@ -87,6 +87,6 @@ class VADDetector:
 
         output, self.state = self.session.run(None, ort_inputs)
 
-        # 確率値を返す (output shape: (1, 1))
+        # 確率値を返す（output shape: (1, 1)）
         probability = float(output.squeeze().item())
         return probability

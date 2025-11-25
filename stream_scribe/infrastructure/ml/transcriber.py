@@ -31,7 +31,7 @@ class Transcriber(threading.Thread):
     """
     MLX Whisperによる文字起こしスレッド
 
-    Features:
+    機能:
     - キューベースの非同期処理
     - 幻覚フィルタリング
     """
@@ -140,11 +140,11 @@ class Transcriber(threading.Thread):
             # 音声の長さを計算
             audio_duration = len(audio) / SAMPLE_RATE
 
-            # メトリクスを抽出（フィルタリング + 分析用）
+            # メトリクスを抽出（フィルタリングと分析用）
             metrics = self.hallucination_filter.extract_metrics(segments)
             avg_logprob = metrics[0]
 
-            # 幻覚検出（テキストパターン + 極端に低い信頼度 + 文脈なし挨拶）
+            # 幻覚検出（テキストパターン、極端に低い信頼度、文脈なし挨拶）
             filter_reason = self.hallucination_filter.evaluate_transcription(
                 text, avg_logprob, audio_duration
             )

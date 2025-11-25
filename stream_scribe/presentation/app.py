@@ -27,13 +27,15 @@ from stream_scribe.domain.constants import (
     WHISPER_MODEL,
 )
 from stream_scribe.domain.models import (
-    AudioStreamStatusEvent,
     TranscriptionError,
     TranscriptionSegment,
     TranscriptionSession,
 )
 from stream_scribe.infrastructure.ai.summarizer import RealtimeSummarizer
-from stream_scribe.infrastructure.audio.audio_stream import AudioStream
+from stream_scribe.infrastructure.audio.audio_stream import (
+    AudioStream,
+    AudioStreamStatusEvent,
+)
 from stream_scribe.infrastructure.audio.sources import (
     AudioSource,
     FileAudioSource,
@@ -172,9 +174,7 @@ class StreamScribeApp:
         Args:
             graceful: Trueなら残り処理を完了させてから保存、Falseなら即座に終了
         """
-        # 1. AudioStream停止
-        if self.audio_stream:
-            self.audio_stream.on_exit()
+        # 1. ディスプレイをクリア
         if self.display:
             self.display.clear()
 
@@ -301,7 +301,7 @@ class StreamScribeApp:
         )
 
         try:
-            with self.audio_stream.start() as stream:
+            with self.audio_stream as stream:
                 # ファイル/マイク共通：終了シグナルを待つ
                 # ファイル入力時は処理完了も終了条件に含める
                 stop_condition = (

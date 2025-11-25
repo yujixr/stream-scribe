@@ -8,27 +8,6 @@ from dataclasses import dataclass
 from datetime import datetime
 
 
-@dataclass(frozen=True)
-class AudioDevice:
-    """オーディオデバイス情報"""
-
-    id: int
-    name: str
-    max_input_channels: int
-    is_default: bool = False
-
-
-@dataclass
-class AudioStreamStatusEvent:
-    """音声ストリームの状態イベント"""
-
-    probability: float  # VAD確率
-    is_recording: bool  # 録音中かどうか
-    is_transcribing: bool  # 文字起こし中かどうか
-    recording_elapsed: float  # 録音経過時間（秒）
-    speech_chunks: int  # 音声チャンク数
-
-
 @dataclass
 class TranscriptionSegment:
     """文字起こしされた音声セグメント"""

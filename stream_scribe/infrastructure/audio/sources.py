@@ -10,15 +10,29 @@ import queue
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Generator
-from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 import sounddevice as sd  # type: ignore[import-untyped]
 import soundfile as sf  # type: ignore[import-untyped]
 
-from stream_scribe.domain.constants import AUDIO_BLOCK_SEC, CHUNK_SIZE, SAMPLE_RATE
-from stream_scribe.domain.models import AudioDevice
+from stream_scribe.domain.constants import (
+    AUDIO_BLOCK_SEC,
+    AUDIO_QUEUE_GET_TIMEOUT_SEC,
+    CHUNK_SIZE,
+    SAMPLE_RATE,
+)
+
+
+@dataclass(frozen=True)
+class AudioDevice:
+    """オーディオデバイス情報"""
+
+    id: int
+    name: str
+    max_input_channels: int
+    is_default: bool = False
 
 
 class AudioSource(ABC):
@@ -35,7 +49,7 @@ class AudioSource(ABC):
         音声データのチャンクをジェネレータとして yield する
 
         Yields:
-            np.ndarray: CHUNK_SIZE (512) サンプルの float32 音声データ
+            np.ndarray: CHUNK_SIZE（512）サンプルのfloat32音声データ
         """
         pass
 
@@ -109,7 +123,7 @@ class MicrophoneAudioSource(AudioSource):
         _time_info: Any,
         status: sd.CallbackFlags,
     ) -> None:
-        """sounddevice コールバック (非同期)"""
+        """sounddeviceコールバック（非同期）"""
         if status:
             import sys
 
@@ -128,15 +142,15 @@ class MicrophoneAudioSource(AudioSource):
         マイクからの音声データをチャンク単位で yield する
 
         Yields:
-            np.ndarray: CHUNK_SIZE (512) サンプルの float32 音声データ
+            np.ndarray: CHUNK_SIZE（512）サンプルのfloat32音声データ
         """
         while self._running:
             try:
                 # キューから音声データを取得（タイムアウト付き）
-                audio_block = self._queue.get(timeout=0.5)
+                audio_block = self._queue.get(timeout=AUDIO_QUEUE_GET_TIMEOUT_SEC)
                 self._chunk_buffer = np.append(self._chunk_buffer, audio_block)
 
-                # CHUNK_SIZE 単位で yield
+                # CHUNK_SIZE単位でyield
                 while len(self._chunk_buffer) >= CHUNK_SIZE:
                     chunk = self._chunk_buffer[:CHUNK_SIZE]
                     self._chunk_buffer = self._chunk_buffer[CHUNK_SIZE:]
@@ -198,12 +212,12 @@ class FileAudioSource(AudioSource):
 
     def _load_audio(self) -> np.ndarray:
         """
-        音声ファイルを読み込み、16kHz モノラルに変換
+        音声ファイルを読み込み、16kHzモノラルに変換
 
         Returns:
-            np.ndarray: 16kHz モノラルの float32 音声データ
+            np.ndarray: 16kHzモノラルのfloat32音声データ
         """
-        # soundfile で読み込み（ネイティブサンプルレート）
+        # soundfileで読み込み（ネイティブサンプルレート）
         audio_data, original_sr = sf.read(self.file_path, dtype="float32")
 
         # ステレオの場合はモノラルに変換
@@ -231,7 +245,7 @@ class FileAudioSource(AudioSource):
         音声ファイルからのデータをチャンク単位で yield する
 
         Yields:
-            np.ndarray: CHUNK_SIZE (512) サンプルの float32 音声データ
+            np.ndarray: CHUNK_SIZE（512）サンプルのfloat32音声データ
         """
         if self._audio_data is None:
             return
@@ -239,7 +253,7 @@ class FileAudioSource(AudioSource):
         # チャンクごとの時間（秒）
         chunk_duration = CHUNK_SIZE / SAMPLE_RATE
 
-        # CHUNK_SIZE ごとにスライスして yield
+        # CHUNK_SIZEごとにスライスしてyield
         total_samples = len(self._audio_data)
         for i in range(0, total_samples, CHUNK_SIZE):
             chunk = self._audio_data[i : i + CHUNK_SIZE]
@@ -274,12 +288,3 @@ class FileAudioSource(AudioSource):
     def duration(self) -> float:
         """音声ファイルの長さ（秒）"""
         return self._duration
-
-    @contextmanager
-    def get_context(self) -> Generator[FileAudioSource, None, None]:
-        """代替コンテキストマネージャ"""
-        try:
-            self.__enter__()
-            yield self
-        finally:
-            self.__exit__(None, None, None)
