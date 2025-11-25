@@ -184,6 +184,79 @@ class TestEmptyInput:
         assert result is None
 
 
+class TestContextlessGreeting:
+    """文脈なし挨拶フィルタのテスト"""
+
+    def test_detects_greeting_with_low_confidence(
+        self, filter_instance: HallucinationFilter
+    ) -> None:
+        """低信頼度の挨拶を検出する"""
+        result = filter_instance.evaluate_transcription(
+            "おやすみなさい", avg_logprob=-0.9, audio_duration=2.0
+        )
+        assert result is not None
+        assert "Contextless greeting with low confidence" in result
+        assert "おやすみなさい" in result
+
+    def test_detects_greeting_in_long_audio(
+        self, filter_instance: HallucinationFilter
+    ) -> None:
+        """長尺音声中の短い挨拶を検出する"""
+        result = filter_instance.evaluate_transcription(
+            "ありがとう", avg_logprob=-0.3, audio_duration=6.0
+        )
+        assert result is not None
+        assert "Contextless greeting in long audio" in result
+        assert "ありがとう" in result
+
+    def test_passes_greeting_with_normal_confidence_and_short_audio(
+        self, filter_instance: HallucinationFilter
+    ) -> None:
+        """通常の信頼度かつ短い音声の挨拶は通過する"""
+        result = filter_instance.evaluate_transcription(
+            "おはよう", avg_logprob=-0.3, audio_duration=2.0
+        )
+        assert result is None
+
+    def test_passes_greeting_in_long_context(
+        self, filter_instance: HallucinationFilter
+    ) -> None:
+        """長い文脈中の挨拶は通過する"""
+        result = filter_instance.evaluate_transcription(
+            "今日はいい天気ですね。おはようございます。",
+            avg_logprob=-0.9,
+            audio_duration=3.0,
+        )
+        assert result is None
+
+    def test_passes_greeting_without_audio_duration(
+        self, filter_instance: HallucinationFilter
+    ) -> None:
+        """audio_durationなしで低信頼度のみチェック"""
+        # 低信頼度で検出される
+        result = filter_instance.evaluate_transcription(
+            "こんにちは", avg_logprob=-0.9, audio_duration=None
+        )
+        assert result is not None
+        assert "low confidence" in result
+
+        # 通常の信頼度では通過
+        result = filter_instance.evaluate_transcription(
+            "こんにちは", avg_logprob=-0.3, audio_duration=None
+        )
+        assert result is None
+
+    def test_detects_greeting_with_punctuation(
+        self, filter_instance: HallucinationFilter
+    ) -> None:
+        """句読点付きの挨拶も検出する"""
+        result = filter_instance.evaluate_transcription(
+            "おやすみなさい。", avg_logprob=-0.9, audio_duration=2.0
+        )
+        assert result is not None
+        assert "Contextless greeting" in result
+
+
 class TestExtractMetrics:
     """メトリクス抽出のテスト"""
 

@@ -49,7 +49,10 @@ class HallucinationFilter:
         self.banned_phrases = banned_phrases
 
     def evaluate_transcription(
-        self, text: str, avg_logprob: float | None = None
+        self,
+        text: str,
+        avg_logprob: float | None = None,
+        audio_duration: float | None = None,
     ) -> str | None:
         """
         文字起こし結果のテキストパターンを評価
@@ -59,6 +62,7 @@ class HallucinationFilter:
         Args:
             text: 文字起こしテキスト
             avg_logprob: セグメントの平均対数確率（オプション）
+            audio_duration: 音声の長さ（秒）（オプション）
 
         Returns:
             str | None: 再試行が必要な場合は理由、そうでなければNone
@@ -81,6 +85,11 @@ class HallucinationFilter:
             return reason
 
         if reason := self._check_token_repetition(text):
+            return reason
+
+        if reason := self._check_contextless_greeting(
+            text, avg_logprob, audio_duration
+        ):
             return reason
 
         if reason := self._check_extreme_low_confidence(avg_logprob):
@@ -284,6 +293,70 @@ class HallucinationFilter:
         no_speech_prob = max(no_speech_probs) if no_speech_probs else None
 
         return avg_logprob, compression_ratio, no_speech_prob
+
+    def _check_contextless_greeting(
+        self,
+        text: str,
+        avg_logprob: float | None,
+        audio_duration: float | None,
+    ) -> str | None:
+        """
+        文脈なしで単独出現する挨拶を検出
+
+        以下の条件で挨拶フレーズを幻覚と判定：
+        1. テキストが挨拶フレーズのみ、または短文（閾値以下）
+        2. かつ、以下のいずれか：
+           - 低信頼度（avg_logprobが閾値以下）
+           - 長尺音声中の短文（音声長が閾値以上かつテキストが短い）
+
+        Args:
+            text: チェック対象のテキスト
+            avg_logprob: セグメントの平均対数確率
+            audio_duration: 音声の長さ（秒）
+
+        Returns:
+            str | None: 破棄理由 or None
+        """
+        from stream_scribe.domain.constants import (
+            CONTEXTLESS_GREETING_PHRASES,
+            GREETING_LONG_AUDIO_THRESHOLD,
+            GREETING_LOW_LOGPROB_THRESHOLD,
+            GREETING_SHORT_TEXT_THRESHOLD,
+        )
+
+        # テキストから句読点・空白を除去して正規化
+        normalized_text = self._JAPANESE_PUNCTUATION_PATTERN.sub("", text)
+
+        # 挨拶フレーズが含まれているかチェック
+        matched_greeting = None
+        for phrase in CONTEXTLESS_GREETING_PHRASES:
+            if phrase in normalized_text:
+                matched_greeting = phrase
+                break
+
+        if not matched_greeting:
+            return None
+
+        # 条件1: テキストが短文かチェック
+        if len(normalized_text) > GREETING_SHORT_TEXT_THRESHOLD:
+            return None
+
+        # 条件2: 低信頼度または長尺音声中の短文
+        is_low_confidence = (
+            avg_logprob is not None and avg_logprob < GREETING_LOW_LOGPROB_THRESHOLD
+        )
+        is_short_in_long_audio = (
+            audio_duration is not None
+            and audio_duration >= GREETING_LONG_AUDIO_THRESHOLD
+            and len(normalized_text) <= GREETING_SHORT_TEXT_THRESHOLD
+        )
+
+        if is_low_confidence:
+            return f"Contextless greeting with low confidence: '{matched_greeting}' (avg_logprob={avg_logprob:.2f})"
+        elif is_short_in_long_audio:
+            return f"Contextless greeting in long audio: '{matched_greeting}' (audio={audio_duration:.1f}s, text={len(normalized_text)} chars)"
+
+        return None
 
     def _check_extreme_low_confidence(self, avg_logprob: float | None) -> str | None:
         """

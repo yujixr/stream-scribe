@@ -137,13 +137,16 @@ class Transcriber(threading.Thread):
             segments_raw = result.get("segments")
             segments = segments_raw if isinstance(segments_raw, list) else []
 
+            # 音声の長さを計算
+            audio_duration = len(audio) / SAMPLE_RATE
+
             # メトリクスを抽出（フィルタリング + 分析用）
             metrics = self.hallucination_filter.extract_metrics(segments)
             avg_logprob = metrics[0]
 
-            # 幻覚検出（テキストパターン + 極端に低い信頼度）
+            # 幻覚検出（テキストパターン + 極端に低い信頼度 + 文脈なし挨拶）
             filter_reason = self.hallucination_filter.evaluate_transcription(
-                text, avg_logprob
+                text, avg_logprob, audio_duration
             )
 
             # 戦略に評価を委譲
@@ -152,7 +155,6 @@ class Transcriber(threading.Thread):
             if strategy_result.action == TranscriptionAction.ACCEPT:
                 # 成功：処理時間を計算してセグメントを作成
                 processing_time = time.time() - processing_start
-                audio_duration = len(audio) / SAMPLE_RATE
 
                 segment = TranscriptionSegment(
                     text=text,
