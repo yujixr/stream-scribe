@@ -64,6 +64,12 @@ class SessionJsonExporter:
             for err in session.errors
         ]
 
+        # 中間サマリをdictに変換
+        summaries_dict = [
+            {"timestamp": summary.timestamp.isoformat(), "content": summary.content}
+            for summary in session.summaries
+        ]
+
         output_data = {
             "session_start": session.session_start.isoformat(),
             "session_end": datetime.now().isoformat(),
@@ -71,11 +77,15 @@ class SessionJsonExporter:
             "total_errors": session.get_total_errors(),
             "segments": segments_dict,
             "errors": errors_dict,
+            "summaries": summaries_dict,
         }
 
-        # 構造化サマリがあれば追加
-        if session.structured_summary:
-            output_data["structured_summary"] = session.structured_summary
+        # 最終サマリがあれば追加
+        if session.final_summary:
+            output_data["final_summary"] = {
+                "timestamp": session.final_summary.timestamp.isoformat(),
+                "content": session.final_summary.content,
+            }
 
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(output_data, f, ensure_ascii=False, indent=2)

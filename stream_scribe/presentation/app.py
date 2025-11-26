@@ -174,13 +174,13 @@ class StreamScribeApp:
 
     def on_summary(self, summary: str) -> None:
         """
-        要約生成時のイベントハンドラ
+        要約生成時のイベントハンドラ（中間サマリ）
 
         処理:
         1. セッションに保存
         2. 画面表示
         """
-        self.session.set_structured_summary(summary)
+        self.session.add_summary(summary, is_final=False)
         self.display.show_summary(summary)
 
     def on_error(
@@ -276,7 +276,7 @@ class StreamScribeApp:
             final_summary: 最終サマリ（Noneでなければセッションに設定）
         """
         if final_summary:
-            self.session.set_structured_summary(final_summary)
+            self.session.add_summary(final_summary, is_final=True)
 
         if self.session.get_total_segments() > 0:
             output_path = SessionJsonExporter.save_to_file(self.session)

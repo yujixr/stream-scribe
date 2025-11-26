@@ -31,6 +31,14 @@ class TranscriptionError:
     message: str
 
 
+@dataclass
+class SummaryEntry:
+    """要約エントリ（中間・最終サマリ）"""
+
+    timestamp: datetime
+    content: str
+
+
 class TranscriptionSession:
     """
     会話記録セッション（ドメインエンティティ）
@@ -39,7 +47,7 @@ class TranscriptionSession:
     - セグメントの集約
     - エラーの集約
     - セッション状態の管理
-    - サマリの保持
+    - サマリ履歴の保持（中間サマリ + 最終サマリ）
 
     Note: 永続化ロジックは infrastructure/persistence に分離
     """
@@ -47,8 +55,9 @@ class TranscriptionSession:
     def __init__(self) -> None:
         self.segments: list[TranscriptionSegment] = []
         self.errors: list[TranscriptionError] = []
+        self.summaries: list[SummaryEntry] = []
         self.session_start = datetime.now()
-        self.structured_summary: str | None = None
+        self.final_summary: SummaryEntry | None = None
 
     def add_segment(self, segment: TranscriptionSegment) -> None:
         """セグメントを追加"""
@@ -58,9 +67,19 @@ class TranscriptionSession:
         """エラーを追加"""
         self.errors.append(error)
 
-    def set_structured_summary(self, summary: str) -> None:
-        """構造化サマリを設定"""
-        self.structured_summary = summary
+    def add_summary(self, summary: str, is_final: bool = False) -> None:
+        """
+        サマリを追加
+
+        Args:
+            summary: サマリ内容
+            is_final: 最終サマリかどうか（Trueの場合はsummariesではなくfinal_summaryに設定）
+        """
+        entry = SummaryEntry(timestamp=datetime.now(), content=summary)
+        if is_final:
+            self.final_summary = entry
+        else:
+            self.summaries.append(entry)
 
     def get_total_segments(self) -> int:
         """総セグメント数を取得"""
