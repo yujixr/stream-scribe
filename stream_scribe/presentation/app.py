@@ -11,6 +11,7 @@ import time
 import traceback
 from datetime import datetime
 
+import numpy as np
 from colorama import Fore, Style  # type: ignore[import-untyped]
 from colorama import init as colorama_init
 
@@ -59,9 +60,13 @@ class StreamScribeApp:
 
     責務:
     - コンポーネントの初期化と依存性注入
-    - イベントハンドリング
+    - イベントハンドリング（EventHandler Protocolの実装）
     - セッションのライフサイクル管理
     - UI表示とユーザーインタラクション
+
+    Note:
+    - EventHandler Protocolを実装（明示的な継承は不要）
+    - on_audio/on_segment/on_summary/on_errorメソッドがProtocolを満たす
     """
 
     def __init__(
@@ -89,8 +94,7 @@ class StreamScribeApp:
         self.summarizer: RealtimeSummarizer | None = None
         if enable_summary and api_key:
             self.summarizer = RealtimeSummarizer(
-                on_summary=self.on_summary,
-                on_error=self.on_error,
+                event_handler=self,  # EventHandler Protocolを満たす
                 api_key=api_key,
             )
             self.summarizer.start()
@@ -98,10 +102,9 @@ class StreamScribeApp:
         # 5. HallucinationFilter初期化
         hallucination_filter = HallucinationFilter(banned_phrases=BANNED_PHRASES)
 
-        # 6. Transcriber初期化（selfのイベントハンドラを使用）
+        # 6. Transcriber初期化
         self.transcriber = Transcriber(
-            on_segment=self.on_segment,
-            on_error=self.on_error,
+            event_handler=self,
             hallucination_filter=hallucination_filter,
         )
         self.transcriber.start()
@@ -116,7 +119,7 @@ class StreamScribeApp:
         # 8. AudioStream初期化
         self.audio_stream = AudioStream(
             vad=self.vad,
-            transcriber=self.transcriber,
+            event_handler=self,
             audio_source=audio_source,
         )
 
@@ -151,6 +154,22 @@ class StreamScribeApp:
         print(banner)
 
     # ========== イベントハンドラ ==========
+
+    def on_audio(
+        self, audio: np.ndarray, start_time: datetime, end_time: datetime
+    ) -> None:
+        """
+        音声録音完了時のイベントハンドラ
+
+        AudioStreamからVAD検知により録音された音声を受け取り、
+        Transcriberに転送する。
+
+        Args:
+            audio: 録音された音声データ（16kHz モノラル float32）
+            start_time: 録音開始時刻
+            end_time: 録音終了時刻
+        """
+        self.transcriber.add_audio(audio, start_time, end_time)
 
     def on_segment(self, segment: TranscriptionSegment) -> None:
         """

@@ -7,7 +7,6 @@ Stream Scribe - Summarizer Module
 import threading
 import time
 from datetime import datetime
-from typing import Callable
 
 from stream_scribe.domain.constants import (
     SUMMARY_MODEL,
@@ -15,6 +14,7 @@ from stream_scribe.domain.constants import (
     SUMMARY_SILENCE_TIMEOUT_SEC,
     SUMMARY_TRIGGER_THRESHOLD,
 )
+from stream_scribe.domain.events import EventHandler
 from stream_scribe.domain.models import TranscriptionSession
 from stream_scribe.infrastructure.ai.claude_client import ClaudeClient
 from stream_scribe.infrastructure.ai.prompts import (
@@ -36,16 +36,14 @@ class RealtimeSummarizer(threading.Thread):
 
     def __init__(
         self,
-        on_summary: Callable[[str], None],
-        on_error: Callable[[datetime, str, Exception | None], None],
+        event_handler: EventHandler,
         api_key: str,
         model: str = SUMMARY_MODEL,
         prompt_strategy: PromptStrategy | None = None,
     ) -> None:
         super().__init__(daemon=True)
         self.running = True
-        self.on_summary = on_summary  # サマリ生成時のコールバック
-        self.on_error = on_error  # エラーコールバック
+        self._event_handler = event_handler  # イベントハンドラ
 
         # Claude APIクライアント
         self.claude_client = ClaudeClient(api_key=api_key, model=model)
@@ -144,8 +142,8 @@ class RealtimeSummarizer(threading.Thread):
 
             return updated_summary
         except Exception as e:
-            # Claude API呼び出しエラーをコールバック経由で通知
-            self.on_error(datetime.now(), "Summary generation failed", e)
+            # Claude API呼び出しエラーをイベントハンドラ経由で通知
+            self._event_handler.on_error(datetime.now(), "Summary generation failed", e)
             return None
         finally:
             self.is_summarizing = False
@@ -161,7 +159,7 @@ class RealtimeSummarizer(threading.Thread):
                 summary = self._process_buffer()
 
                 if summary:
-                    self.on_summary(summary)
+                    self._event_handler.on_summary(summary)
 
     def stop(self, session: TranscriptionSession | None = None) -> str | None:
         """
@@ -200,5 +198,7 @@ class RealtimeSummarizer(threading.Thread):
                 temperature=0.0,
             )
         except Exception as e:
-            self.on_error(datetime.now(), "Final summary generation failed", e)
+            self._event_handler.on_error(
+                datetime.now(), "Final summary generation failed", e
+            )
             return None

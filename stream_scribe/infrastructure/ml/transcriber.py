@@ -8,7 +8,6 @@ import queue
 import threading
 import time
 from datetime import datetime
-from typing import Callable
 
 import mlx_whisper  # type: ignore[import-untyped]
 import numpy as np
@@ -19,6 +18,7 @@ from stream_scribe.domain.constants import (
     WHISPER_MODEL,
     WHISPER_PARAMS,
 )
+from stream_scribe.domain.events import EventHandler
 from stream_scribe.domain.models import TranscriptionSegment
 from stream_scribe.infrastructure.ml.filters import HallucinationFilter
 from stream_scribe.infrastructure.ml.transcription_strategy import (
@@ -38,8 +38,7 @@ class Transcriber(threading.Thread):
 
     def __init__(
         self,
-        on_segment: Callable[[TranscriptionSegment], None],
-        on_error: Callable[[datetime, str, Exception | None], None],
+        event_handler: EventHandler,
         hallucination_filter: HallucinationFilter,
         model_name: str = WHISPER_MODEL,
     ) -> None:
@@ -48,8 +47,7 @@ class Transcriber(threading.Thread):
         self.running = True
         self._processing = False  # 現在処理中かどうか
         self.model_name = model_name
-        self.on_segment = on_segment  # コールバック関数
-        self.on_error = on_error  # エラーコールバック
+        self._event_handler = event_handler  # イベントハンドラ
         self.hallucination_filter = hallucination_filter  # 幻覚フィルター
 
         print(f"{Fore.CYAN}Loading Whisper model: {model_name}{Style.RESET_ALL}")
@@ -117,7 +115,9 @@ class Transcriber(threading.Thread):
             except Exception as e:
                 # mlx_whisper自体のエラー（構造的な問題）は再試行しない
                 if self.running:
-                    self.on_error(recording_end, "Transcription failed", e)
+                    self._event_handler.on_error(
+                        recording_end, "Transcription failed", e
+                    )
                 return
 
             # テキスト抽出と正規化
@@ -155,13 +155,13 @@ class Transcriber(threading.Thread):
                     compression_ratio=metrics[1],
                     no_speech_prob=metrics[2],
                 )
-                self.on_segment(segment)
+                self._event_handler.on_segment(segment)
                 return
 
             elif strategy_result.action == TranscriptionAction.RETRY:
                 # リトライ：エラーを通知して続行
                 attempt, max_attempts = strategy.get_attempt_info()
-                self.on_error(
+                self._event_handler.on_error(
                     recording_start,
                     f"Quality issue detected (attempt {attempt - 1}/{max_attempts}): "
                     f"{strategy_result.reason} | Retrying with stricter parameters...",
@@ -173,7 +173,7 @@ class Transcriber(threading.Thread):
                 # 破棄：無音以外の場合はエラーを通知
                 if filter_reason:  # 無音ではない場合のみエラー表示
                     attempt, max_attempts = strategy.get_attempt_info()
-                    self.on_error(
+                    self._event_handler.on_error(
                         recording_start,
                         f"Quality issue filtered (attempt {attempt}/{max_attempts}): "
                         f"{strategy_result.reason} | Text: '{text[:50]}...'",
