@@ -15,26 +15,44 @@ from datetime import datetime
 import wcwidth  # type: ignore[import-untyped]
 from colorama import Fore, Style  # type: ignore[import-untyped]
 
+from stream_scribe import __version__
+from stream_scribe.domain import MessageLevel, MessagePostedEvent, TranscriptionSegment
 from stream_scribe.domain.constants import (
     CHUNK_MS,
     MAX_ERROR_DETAIL_LENGTH,
     MAX_TRACEBACK_LENGTH,
+    MIN_SPEECH_CHUNKS,
+    PREROLL_SEC,
+    SUMMARY_MODEL,
+    VAD_END_THRESHOLD,
     VAD_START_THRESHOLD,
+    WHISPER_MODEL,
 )
-from stream_scribe.domain.models import TranscriptionSegment
 
 
-class DisplayFormatter:
+class StatusDisplay:
     """
-    表示フォーマッティング専用クラス
+    リアルタイム表示管理クラス
 
     Features:
+    - VAD/録音/処理ステータスのリアルタイム更新
+    - 文字起こし結果の表示
+    - 構造化された会話記録の表示
     - ANSIエスケープコードを考慮した表示幅計算
     - 全角・半角を考慮したテキスト切り詰め
     """
 
     # ANSIエスケープコード削除用パターン（コンパイル済み）
     _ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()  # スレッド間の同期用ロック
+        self.session_start_time = time.time()  # セッション開始時刻
+
+        # 起動バナーを表示
+        self._show_banner()
+
+    # ========== フォーマッティングメソッド ==========
 
     def get_display_width(self, text: str) -> int:
         """ANSIエスケープコードを除いた実際の表示幅を取得"""
@@ -70,21 +88,7 @@ class DisplayFormatter:
 
         return text
 
-
-class StatusDisplay:
-    """
-    リアルタイム表示管理クラス
-
-    Features:
-    - VAD/録音/処理ステータスのリアルタイム更新
-    - 文字起こし結果の表示
-    - 構造化された会話記録の表示
-    """
-
-    def __init__(self, formatter: DisplayFormatter):
-        self.lock = threading.Lock()  # スレッド間の同期用ロック
-        self.session_start_time = time.time()  # セッション開始時刻
-        self.formatter = formatter  # フォーマッター
+    # ========== ステータス表示メソッド ==========
 
     def update_status(
         self,
@@ -147,17 +151,16 @@ class StatusDisplay:
 
         # 左側セクション構築（オーバーフロー対応）
         full_left = f"{vad_section} | {status_text}"
-        left_width = self.formatter.get_display_width(full_left)
-        right_width = self.formatter.get_display_width(right_section)
+        left_width = self.get_display_width(full_left)
+        right_width = self.get_display_width(right_section)
         overflow = left_width + right_width - terminal_width
 
         if overflow > 0:
-            status_width = self.formatter.get_display_width(status_text)
+            status_width = self.get_display_width(status_text)
             target_status_width = status_width - overflow - 3
             if target_status_width > 0:
                 status_text = (
-                    self.formatter.truncate_text(status_text, target_status_width)
-                    + "..."
+                    self.truncate_text(status_text, target_status_width) + "..."
                 )
             else:
                 status_text = "..."
@@ -166,8 +169,8 @@ class StatusDisplay:
             left_section = full_left
 
         # 最終ステータスライン構築
-        left_width = self.formatter.get_display_width(left_section)
-        right_width = self.formatter.get_display_width(right_section)
+        left_width = self.get_display_width(left_section)
+        right_width = self.get_display_width(right_section)
         padding_width = max(0, terminal_width - left_width - right_width)
         padding = " " * padding_width
 
@@ -187,6 +190,23 @@ class StatusDisplay:
             sys.stdout.write(
                 f"{Fore.GREEN}[{timestamp}]{Style.RESET_ALL} {segment.text} {time_info}\n"
             )
+            sys.stdout.flush()
+
+    def show_message(self, event: MessagePostedEvent) -> None:
+        """メッセージを表示"""
+        # メッセージレベルに応じた色を選択
+        color_map = {
+            MessageLevel.INFO: Fore.CYAN,
+            MessageLevel.SUCCESS: Fore.GREEN,
+            MessageLevel.WARNING: Fore.YELLOW,
+            MessageLevel.ERROR: Fore.RED,
+        }
+        color = color_map.get(event.level, Fore.WHITE)
+
+        with self.lock:
+            # 現在のステータスバーをクリア
+            sys.stdout.write("\r\033[K")
+            sys.stdout.write(f"{color}{event.message}{Style.RESET_ALL}\n")
             sys.stdout.flush()
 
     def show_summary(self, summary_text: str) -> None:
@@ -239,3 +259,26 @@ class StatusDisplay:
         with self.lock:
             sys.stdout.write("\r\033[K\n")
             sys.stdout.flush()
+
+    def _show_banner(self) -> None:
+        """起動バナーを表示（初期化時に自動実行）"""
+        # バージョン文字列の表示：.dev以降をカット
+        version_display = (
+            __version__.split(".dev")[0] if ".dev" in __version__ else __version__
+        )
+        banner = f"""
+{Fore.CYAN}╔══════════════════════════════════════════╗
+║       Stream Scribe v{version_display:<18}  ║
+║  Real-time Conversation Recorder         ║
+╚══════════════════════════════════════════╝{Style.RESET_ALL}
+
+{Fore.YELLOW}Config:{Style.RESET_ALL}
+  - VAD: Silero VAD v5 (ONNX) [Hysteresis: {VAD_START_THRESHOLD}/{VAD_END_THRESHOLD}]
+  - Whisper: {WHISPER_MODEL}
+  - Structurer: Claude ({SUMMARY_MODEL})
+  - Min Speech: {MIN_SPEECH_CHUNKS} chunks ({MIN_SPEECH_CHUNKS * CHUNK_MS}ms)
+  - Preroll: {PREROLL_SEC}s
+
+"""
+        sys.stdout.write(banner)
+        sys.stdout.flush()

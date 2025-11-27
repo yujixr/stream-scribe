@@ -8,8 +8,9 @@ from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort  # type: ignore[import-untyped]
-from colorama import Fore, Style  # type: ignore[import-untyped]
+import requests
 
+from stream_scribe.domain import MessageLevel, MessagePostedEvent, message_posted
 from stream_scribe.domain.constants import MODEL_PATH, SAMPLE_RATE, SILERO_MODEL_URL
 
 
@@ -29,6 +30,13 @@ class VADDetector:
             model_path: ONNXモデルのパス
             auto_download: モデルが存在しない場合に自動ダウンロードするか
         """
+        message_posted.send(
+            None,
+            event=MessagePostedEvent(
+                message="Initializing VAD...", level=MessageLevel.INFO
+            ),
+        )
+
         # モデルの自動ダウンロード
         if auto_download and not model_path.exists():
             self._download_model(model_path)
@@ -44,13 +52,23 @@ class VADDetector:
         # サンプルレート（ONNXモデルは16000固定）
         self._sr = np.array(SAMPLE_RATE, dtype=np.int64)
 
+        message_posted.send(
+            None,
+            event=MessagePostedEvent(
+                message="VAD ready.\n", level=MessageLevel.SUCCESS
+            ),
+        )
+
     @staticmethod
     def _download_model(model_path: Path) -> None:
         """Silero VADモデルを自動ダウンロード"""
-        print(f"{Fore.YELLOW}Downloading Silero VAD model...{Style.RESET_ALL}")
+        message_posted.send(
+            None,
+            event=MessagePostedEvent(
+                message="Downloading Silero VAD model...", level=MessageLevel.INFO
+            ),
+        )
         model_path.parent.mkdir(parents=True, exist_ok=True)
-
-        import requests
 
         response = requests.get(SILERO_MODEL_URL, stream=True)
         response.raise_for_status()
@@ -59,7 +77,12 @@ class VADDetector:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
 
-        print(f"{Fore.GREEN}Model downloaded: {model_path}{Style.RESET_ALL}")
+        message_posted.send(
+            None,
+            event=MessagePostedEvent(
+                message=f"Model downloaded: {model_path}", level=MessageLevel.SUCCESS
+            ),
+        )
 
     def reset_states(self) -> None:
         """LSTM状態をリセット"""

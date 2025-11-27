@@ -11,25 +11,25 @@ from datetime import datetime
 
 import mlx_whisper  # type: ignore[import-untyped]
 import numpy as np
-from colorama import Fore, Style  # type: ignore[import-untyped]
 
+from stream_scribe.domain import (
+    ErrorOccurredEvent,
+    MessageLevel,
+    MessagePostedEvent,
+    SegmentTranscribedEvent,
+    TranscriptionSegment,
+    error_occurred,
+    message_posted,
+    segment_transcribed,
+)
 from stream_scribe.domain.constants import (
     SAMPLE_RATE,
     WHISPER_MODEL,
     WHISPER_PARAMS,
 )
-from stream_scribe.domain.events import (
-    ErrorOccurredEvent,
-    SegmentTranscribedEvent,
-    error_occurred,
-    segment_transcribed,
-)
-from stream_scribe.domain.models import TranscriptionSegment
-from stream_scribe.infrastructure.ml.filters import HallucinationFilter
-from stream_scribe.infrastructure.ml.transcription_strategy import (
-    TranscriptionAction,
-    TranscriptionRetryStrategy,
-)
+
+from .filters import HallucinationFilter
+from .transcription_strategy import TranscriptionAction, TranscriptionRetryStrategy
 
 
 class Transcriber(threading.Thread):
@@ -54,7 +54,13 @@ class Transcriber(threading.Thread):
         self.model_name = model_name
         self.hallucination_filter = hallucination_filter  # 幻覚フィルター
 
-        print(f"{Fore.CYAN}Loading Whisper model: {model_name}{Style.RESET_ALL}")
+        message_posted.send(
+            None,
+            event=MessagePostedEvent(
+                message=f"Loading Whisper model: {model_name}",
+                level=MessageLevel.INFO,
+            ),
+        )
 
         # モデルを事前ロード（ダミー音声で初期化）
         dummy_audio = np.zeros(SAMPLE_RATE, dtype=np.float32)  # 1秒の無音
@@ -62,11 +68,26 @@ class Transcriber(threading.Thread):
             mlx_whisper.transcribe(
                 dummy_audio, path_or_hf_repo=self.model_name, **WHISPER_PARAMS[0]
             )
-            print(f"{Fore.GREEN}Whisper model ready.{Style.RESET_ALL}\n")
+            message_posted.send(
+                None,
+                event=MessagePostedEvent(
+                    message="Whisper model ready.\n", level=MessageLevel.SUCCESS
+                ),
+            )
         except Exception as e:
-            print(f"{Fore.YELLOW}Warning: Model preload failed: {e}{Style.RESET_ALL}")
-            print(
-                f"{Fore.YELLOW}Model will be loaded on first transcription.{Style.RESET_ALL}\n"
+            message_posted.send(
+                None,
+                event=MessagePostedEvent(
+                    message=f"Warning: Model preload failed: {e}",
+                    level=MessageLevel.WARNING,
+                ),
+            )
+            message_posted.send(
+                None,
+                event=MessagePostedEvent(
+                    message="Model will be loaded on first transcription.\n",
+                    level=MessageLevel.WARNING,
+                ),
             )
 
     def add_audio(

@@ -6,11 +6,12 @@ Stream Scribe - Events (Pub/Sub)
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 
 import numpy as np
 from blinker import Signal
 
-from stream_scribe.domain.models import TranscriptionSegment
+from .models import TranscriptionSegment
 
 # ========================================
 # イベント名定数
@@ -19,11 +20,21 @@ EVENT_AUDIO_RECORDED = "audio_recorded"
 EVENT_SEGMENT_TRANSCRIBED = "segment_transcribed"
 EVENT_SUMMARY_GENERATED = "summary_generated"
 EVENT_ERROR_OCCURRED = "error_occurred"
+EVENT_MESSAGE_POSTED = "message_posted"
 
 
 # ========================================
 # イベント型定義
 # ========================================
+
+
+class MessageLevel(str, Enum):
+    """メッセージレベル"""
+
+    INFO = "info"
+    SUCCESS = "success"
+    WARNING = "warning"
+    ERROR = "error"
 
 
 @dataclass(frozen=True)
@@ -74,12 +85,25 @@ class ErrorOccurredEvent:
     exception: Exception | None  # 例外オブジェクト（存在する場合）
 
 
+@dataclass(frozen=True)
+class MessagePostedEvent:
+    """
+    メッセージ投稿イベント
+
+    システム状態の変化やユーザーへの通知メッセージを表示する際に発行される。
+    """
+
+    message: str  # 表示するメッセージ
+    level: MessageLevel  # メッセージレベル（INFO/SUCCESS/WARNING/ERROR）
+
+
 # イベント型のユニオン（型チェック用）
 Event = (
     AudioRecordedEvent
     | SegmentTranscribedEvent
     | SummaryGeneratedEvent
     | ErrorOccurredEvent
+    | MessagePostedEvent
 )
 
 
@@ -93,3 +117,4 @@ audio_recorded = Signal(EVENT_AUDIO_RECORDED)  # AudioRecordedEvent
 segment_transcribed = Signal(EVENT_SEGMENT_TRANSCRIBED)  # SegmentTranscribedEvent
 summary_generated = Signal(EVENT_SUMMARY_GENERATED)  # SummaryGeneratedEvent
 error_occurred = Signal(EVENT_ERROR_OCCURRED)  # ErrorOccurredEvent
+message_posted = Signal(EVENT_MESSAGE_POSTED)  # MessagePostedEvent

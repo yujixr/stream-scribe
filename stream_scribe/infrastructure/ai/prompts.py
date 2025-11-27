@@ -6,7 +6,7 @@ Claude API用のプロンプトテンプレートを管理するモジュール
 
 from typing import Protocol
 
-from stream_scribe.domain.models import TranscriptionSession
+from stream_scribe.domain import TranscriptionSession
 
 
 class PromptStrategy(Protocol):

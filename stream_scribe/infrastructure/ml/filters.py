@@ -9,6 +9,10 @@ from collections.abc import Sequence
 from typing import Any
 
 from stream_scribe.domain.constants import (
+    CONTEXTLESS_GREETING_PHRASES,
+    GREETING_LONG_AUDIO_THRESHOLD,
+    GREETING_LOW_LOGPROB_THRESHOLD,
+    GREETING_SHORT_TEXT_THRESHOLD,
     HALLUCINATION_EXTREME_LOW_LOGPROB_THRESHOLD,
     HALLUCINATION_LONG_PATTERN_MAX_LENGTH,
     HALLUCINATION_LONG_PATTERN_MIN_LENGTH,
@@ -319,13 +323,6 @@ class HallucinationFilter:
         Returns:
             str | None: 破棄理由 or None
         """
-        from stream_scribe.domain.constants import (
-            CONTEXTLESS_GREETING_PHRASES,
-            GREETING_LONG_AUDIO_THRESHOLD,
-            GREETING_LOW_LOGPROB_THRESHOLD,
-            GREETING_SHORT_TEXT_THRESHOLD,
-        )
-
         # テキストから句読点・空白を除去して正規化
         normalized_text = self._JAPANESE_PUNCTUATION_PATTERN.sub("", text)
 

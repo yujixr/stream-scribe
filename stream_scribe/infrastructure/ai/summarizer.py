@@ -14,15 +14,16 @@ from stream_scribe.domain.constants import (
     SUMMARY_SILENCE_TIMEOUT_SEC,
     SUMMARY_TRIGGER_THRESHOLD,
 )
-from stream_scribe.domain.events import (
+from stream_scribe.domain import (
     ErrorOccurredEvent,
     SummaryGeneratedEvent,
+    TranscriptionSession,
     error_occurred,
     summary_generated,
 )
-from stream_scribe.domain.models import TranscriptionSession
-from stream_scribe.infrastructure.ai.claude_client import ClaudeClient
-from stream_scribe.infrastructure.ai.prompts import (
+
+from .claude_client import ClaudeClient
+from .prompts import (
     FinalSummaryPromptStrategy,
     PromptStrategy,
     RealtimePromptStrategy,

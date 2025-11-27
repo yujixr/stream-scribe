@@ -8,7 +8,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from stream_scribe.domain.models import TranscriptionSession
+from stream_scribe.domain import TranscriptionSession
 
 
 class SessionJsonExporter:

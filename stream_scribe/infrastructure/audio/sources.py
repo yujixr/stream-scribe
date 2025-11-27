@@ -17,6 +17,7 @@ import numpy as np
 import sounddevice as sd  # type: ignore[import-untyped]
 import soundfile as sf  # type: ignore[import-untyped]
 
+from stream_scribe.domain import MessageLevel, MessagePostedEvent, message_posted
 from stream_scribe.domain.constants import (
     AUDIO_BLOCK_SEC,
     AUDIO_QUEUE_GET_TIMEOUT_SEC,
@@ -125,12 +126,11 @@ class MicrophoneAudioSource(AudioSource):
     ) -> None:
         """sounddeviceコールバック（非同期）"""
         if status:
-            import sys
-
-            from colorama import Fore, Style  # type: ignore[import-untyped]
-
-            print(
-                f"\n{Fore.RED}Audio Error: {status}{Style.RESET_ALL}", file=sys.stderr
+            message_posted.send(
+                None,
+                event=MessagePostedEvent(
+                    message=f"Audio Error: {status}", level=MessageLevel.ERROR
+                ),
             )
 
         # モノラル変換してキューに追加

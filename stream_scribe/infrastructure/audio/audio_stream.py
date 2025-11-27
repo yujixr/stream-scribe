@@ -13,18 +13,16 @@ from typing import Any
 
 import numpy as np
 
+from stream_scribe.domain import AudioRecordedEvent, audio_recorded
 from stream_scribe.domain.constants import (
     AUDIO_STREAM_SHUTDOWN_TIMEOUT_SEC,
     MIN_SPEECH_CHUNKS,
     PREROLL_CHUNKS,
 )
-from stream_scribe.domain.events import AudioRecordedEvent, audio_recorded
-from stream_scribe.infrastructure.audio.sources import AudioSource
-from stream_scribe.infrastructure.audio.vad_detector import VADDetector
-from stream_scribe.infrastructure.audio.vad_state_machine import (
-    VadAction,
-    VadStateMachine,
-)
+
+from .sources import AudioSource
+from .vad_detector import VADDetector
+from .vad_state_machine import VadAction, VadStateMachine
 
 
 @dataclass

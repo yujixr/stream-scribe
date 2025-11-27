@@ -11,10 +11,11 @@ from stream_scribe.domain.constants import (
     STATUS_UPDATE_INTERVAL_SEC,
     STATUS_UPDATE_MANAGER_SHUTDOWN_TIMEOUT_SEC,
 )
-from stream_scribe.infrastructure.ai.summarizer import RealtimeSummarizer
-from stream_scribe.infrastructure.audio.audio_stream import AudioStream
-from stream_scribe.infrastructure.ml.transcriber import Transcriber
-from stream_scribe.presentation.display import StatusDisplay
+from stream_scribe.infrastructure.ai import RealtimeSummarizer
+from stream_scribe.infrastructure.audio import AudioStream
+from stream_scribe.infrastructure.ml import Transcriber
+
+from .display import StatusDisplay
 
 
 class StatusUpdateManager:
