@@ -18,7 +18,7 @@ from stream_scribe.domain.constants import (
     MIN_SPEECH_CHUNKS,
     PREROLL_CHUNKS,
 )
-from stream_scribe.domain.events import EventHandler
+from stream_scribe.domain.event_bus import AudioRecordedEvent, audio_recorded
 from stream_scribe.infrastructure.audio.sources import AudioSource
 from stream_scribe.infrastructure.audio.vad_detector import VADDetector
 from stream_scribe.infrastructure.audio.vad_state_machine import (
@@ -45,22 +45,20 @@ class AudioStream:
     - リングバッファ（プリロール）
     - VAD検知とステートマシン
     - 音声ソースの抽象化（依存性注入）
-    - 録音完了時のイベント発行
+    - 録音完了時のイベント発行（Pub/Sub）
 
     責務:
     - VADによる音声区間検出
     - 音声データのバッファリング
-    - EventHandlerへの録音完了通知
+    - 録音完了イベントの発行
     """
 
     def __init__(
         self,
         vad: VADDetector,
-        event_handler: EventHandler,
         audio_source: AudioSource,
     ):
         self.vad = vad
-        self._event_handler = event_handler
         self.audio_source = audio_source
 
         # プリロール用リングバッファ（collections.deque）
@@ -131,15 +129,18 @@ class AudioStream:
         self.recording_buffer = list(self.preroll_ring_buffer)
 
     def _stop_recording(self) -> None:
-        """録音終了（EventHandlerに通知）"""
+        """録音終了（イベント発行）"""
         recording_end = datetime.now()
 
         if len(self.recording_buffer) > MIN_SPEECH_CHUNKS and self.recording_start:
             # numpy配列に変換
             audio = np.concatenate(self.recording_buffer)
 
-            # EventHandlerに音声録音完了を通知
-            self._event_handler.on_audio(audio, self.recording_start, recording_end)
+            # イベント発行（Pub/Sub）
+            event = AudioRecordedEvent(
+                audio=audio, start_time=self.recording_start, end_time=recording_end
+            )
+            audio_recorded.send(self, event=event)
 
         # リセット
         self.recording_buffer = []

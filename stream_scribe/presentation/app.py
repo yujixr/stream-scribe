@@ -9,9 +9,7 @@ import os
 import sys
 import time
 import traceback
-from datetime import datetime
 
-import numpy as np
 from colorama import Fore, Style  # type: ignore[import-untyped]
 from colorama import init as colorama_init
 
@@ -30,11 +28,17 @@ from stream_scribe.domain.constants import (
     VAD_START_THRESHOLD,
     WHISPER_MODEL,
 )
-from stream_scribe.domain.models import (
-    TranscriptionError,
-    TranscriptionSegment,
-    TranscriptionSession,
+from stream_scribe.domain.event_bus import (
+    AudioRecordedEvent,
+    ErrorOccurredEvent,
+    SegmentTranscribedEvent,
+    SummaryGeneratedEvent,
+    audio_recorded,
+    error_occurred,
+    segment_transcribed,
+    summary_generated,
 )
+from stream_scribe.domain.models import TranscriptionError, TranscriptionSession
 from stream_scribe.infrastructure.ai.summarizer import RealtimeSummarizer
 from stream_scribe.infrastructure.audio.audio_stream import AudioStream
 from stream_scribe.infrastructure.audio.sources import (
@@ -60,13 +64,13 @@ class StreamScribeApp:
 
     責務:
     - コンポーネントの初期化と依存性注入
-    - イベントハンドリング（EventHandler Protocolの実装）
+    - イベントサブスクリプションの設定（Pub/Sub）
     - セッションのライフサイクル管理
     - UI表示とユーザーインタラクション
 
     Note:
-    - EventHandler Protocolを実装（明示的な継承は不要）
-    - on_audio/on_segment/on_summary/on_errorメソッドがProtocolを満たす
+    - イベント駆動アーキテクチャを採用（blinker使用）
+    - 各コンポーネントはイベントバス経由で疎結合に連携
     """
 
     def __init__(
@@ -93,20 +97,14 @@ class StreamScribeApp:
         # 4. RealtimeSummarizer初期化（enable_summaryがTrueかつAPIキーが存在する場合のみ）
         self.summarizer: RealtimeSummarizer | None = None
         if enable_summary and api_key:
-            self.summarizer = RealtimeSummarizer(
-                event_handler=self,  # EventHandler Protocolを満たす
-                api_key=api_key,
-            )
+            self.summarizer = RealtimeSummarizer(api_key=api_key)
             self.summarizer.start()
 
         # 5. HallucinationFilter初期化
         hallucination_filter = HallucinationFilter(banned_phrases=BANNED_PHRASES)
 
         # 6. Transcriber初期化
-        self.transcriber = Transcriber(
-            event_handler=self,
-            hallucination_filter=hallucination_filter,
-        )
+        self.transcriber = Transcriber(hallucination_filter=hallucination_filter)
         self.transcriber.start()
 
         # 7. AudioSource初期化（ファイル入力またはマイク入力）
@@ -117,11 +115,7 @@ class StreamScribeApp:
             audio_source = MicrophoneAudioSource(device_id=device_id)
 
         # 8. AudioStream初期化
-        self.audio_stream = AudioStream(
-            vad=self.vad,
-            event_handler=self,
-            audio_source=audio_source,
-        )
+        self.audio_stream = AudioStream(vad=self.vad, audio_source=audio_source)
 
         # 9. StatusUpdateManager初期化と開始
         self.status_update_manager = StatusUpdateManager(
@@ -131,6 +125,9 @@ class StreamScribeApp:
             summarizer=self.summarizer,
         )
         self.status_update_manager.start()
+
+        # 10. イベントサブスクリプション設定（Pub/Sub）
+        self._setup_event_subscriptions()
 
     def print_banner(self) -> None:
         """起動バナー表示"""
@@ -153,11 +150,30 @@ class StreamScribeApp:
 """
         print(banner)
 
-    # ========== イベントハンドラ ==========
+    # ========== イベントサブスクリプション設定 ==========
 
-    def on_audio(
-        self, audio: np.ndarray, start_time: datetime, end_time: datetime
-    ) -> None:
+    def _setup_event_subscriptions(self) -> None:
+        """
+        イベントサブスクリプションを設定（Pub/Sub）
+
+        各イベントに対するハンドラを登録する。
+        blinkerのSignalシステムを使用して疎結合なイベント処理を実現。
+        """
+        # 音声録音完了イベント → Transcriberへ転送
+        audio_recorded.connect(self._on_audio_recorded)
+
+        # 文字起こし完了イベント → セッション記録 + 画面表示 + 要約送信
+        segment_transcribed.connect(self._on_segment_transcribed)
+
+        # 要約生成イベント → セッション記録 + 画面表示
+        summary_generated.connect(self._on_summary_generated)
+
+        # エラー発生イベント → セッション記録 + 画面表示
+        error_occurred.connect(self._on_error_occurred)
+
+    # ========== イベントハンドラ（Pub/Sub） ==========
+
+    def _on_audio_recorded(self, _sender: object, event: AudioRecordedEvent) -> None:
         """
         音声録音完了時のイベントハンドラ
 
@@ -165,13 +181,14 @@ class StreamScribeApp:
         Transcriberに転送する。
 
         Args:
-            audio: 録音された音声データ（16kHz モノラル float32）
-            start_time: 録音開始時刻
-            end_time: 録音終了時刻
+            _sender: イベント送信元オブジェクト（未使用）
+            event: AudioRecordedEvent（audio, start_time, end_timeを含む）
         """
-        self.transcriber.add_audio(audio, start_time, end_time)
+        self.transcriber.add_audio(event.audio, event.start_time, event.end_time)
 
-    def on_segment(self, segment: TranscriptionSegment) -> None:
+    def _on_segment_transcribed(
+        self, _sender: object, event: SegmentTranscribedEvent
+    ) -> None:
         """
         セグメント完了時のイベントハンドラ
 
@@ -179,38 +196,53 @@ class StreamScribeApp:
         1. セッションへの記録
         2. 画面表示
         3. 要約スレッドへの送信（有効時のみ）
-        4. ストリーム処理完了通知
+
+        Args:
+            _sender: イベント送信元オブジェクト（未使用）
+            event: SegmentTranscribedEvent（segmentを含む）
         """
         # 1. セッションに記録
-        self.session.add_segment(segment)
+        self.session.add_segment(event.segment)
 
         # 2. 画面表示
-        self.display.show_segment(segment)
+        self.display.show_segment(event.segment)
 
         # 3. 要約スレッドに送信（有効時のみ）
         if self.summarizer:
-            self.summarizer.add_segment(segment.text)
+            self.summarizer.add_segment(event.segment.text)
 
-    def on_summary(self, summary: str) -> None:
+    def _on_summary_generated(
+        self, _sender: object, event: SummaryGeneratedEvent
+    ) -> None:
         """
         要約生成時のイベントハンドラ（中間サマリ）
 
         処理:
         1. セッションに保存
         2. 画面表示
-        """
-        self.session.add_summary(summary, is_final=False)
-        self.display.show_summary(summary)
 
-    def on_error(
-        self, error_time: datetime, error_message: str, exception: Exception | None
-    ) -> None:
-        """エラー発生時のイベントハンドラ"""
+        Args:
+            _sender: イベント送信元オブジェクト（未使用）
+            event: SummaryGeneratedEvent（summaryを含む）
+        """
+        self.session.add_summary(event.summary, is_final=False)
+        self.display.show_summary(event.summary)
+
+    def _on_error_occurred(self, _sender: object, event: ErrorOccurredEvent) -> None:
+        """
+        エラー発生時のイベントハンドラ
+
+        Args:
+            _sender: イベント送信元オブジェクト（未使用）
+            event: ErrorOccurredEvent（error_time, error_message, exceptionを含む）
+        """
         # セッションにエラーを記録
-        error = TranscriptionError(timestamp=error_time, message=error_message)
+        error = TranscriptionError(
+            timestamp=event.error_time, message=event.error_message
+        )
         self.session.add_error(error)
 
-        self.display.show_error(error_time, error_message, exception)
+        self.display.show_error(event.error_time, event.error_message, event.exception)
 
     # ========== セッション管理 ==========
 

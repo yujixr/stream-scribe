@@ -14,11 +14,11 @@ Stream Scribeは、マイクからの音声をリアルタイムで文字起こ�
 
 ## アーキテクチャ
 
-Clean Architectureに基づく3層構造を採用しています。
+Clean Architectureに基づく3層構造とイベント駆動設計（Pub/Sub）を採用しています。
 
 ```
 stream_scribe/
-├── domain/          # ビジネスロジック（モデル、定数）
+├── domain/          # ビジネスロジック（モデル、定数、イベント定義）
 ├── infrastructure/  # 外部連携
 │   ├── audio/       # 音声入力、VAD
 │   ├── ml/          # Whisper文字起こし
@@ -26,6 +26,8 @@ stream_scribe/
 │   └── persistence/ # JSONエクスポート
 └── presentation/    # CLI、表示
 ```
+
+各コンポーネントは[blinker](https://blinker.readthedocs.io/)によるイベントバスで疎結合に連携し、Webアプリ化等への拡張を容易にしています。
 
 ### 処理フロー
 

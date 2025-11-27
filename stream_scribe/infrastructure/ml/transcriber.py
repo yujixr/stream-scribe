@@ -18,7 +18,12 @@ from stream_scribe.domain.constants import (
     WHISPER_MODEL,
     WHISPER_PARAMS,
 )
-from stream_scribe.domain.events import EventHandler
+from stream_scribe.domain.event_bus import (
+    ErrorOccurredEvent,
+    SegmentTranscribedEvent,
+    error_occurred,
+    segment_transcribed,
+)
 from stream_scribe.domain.models import TranscriptionSegment
 from stream_scribe.infrastructure.ml.filters import HallucinationFilter
 from stream_scribe.infrastructure.ml.transcription_strategy import (
@@ -34,11 +39,11 @@ class Transcriber(threading.Thread):
     機能:
     - キューベースの非同期処理
     - 幻覚フィルタリング
+    - イベント駆動アーキテクチャ（Pub/Sub）
     """
 
     def __init__(
         self,
-        event_handler: EventHandler,
         hallucination_filter: HallucinationFilter,
         model_name: str = WHISPER_MODEL,
     ) -> None:
@@ -47,7 +52,6 @@ class Transcriber(threading.Thread):
         self.running = True
         self._processing = False  # 現在処理中かどうか
         self.model_name = model_name
-        self._event_handler = event_handler  # イベントハンドラ
         self.hallucination_filter = hallucination_filter  # 幻覚フィルター
 
         print(f"{Fore.CYAN}Loading Whisper model: {model_name}{Style.RESET_ALL}")
@@ -115,9 +119,12 @@ class Transcriber(threading.Thread):
             except Exception as e:
                 # mlx_whisper自体のエラー（構造的な問題）は再試行しない
                 if self.running:
-                    self._event_handler.on_error(
-                        recording_end, "Transcription failed", e
+                    event = ErrorOccurredEvent(
+                        error_time=recording_end,
+                        error_message="Transcription failed",
+                        exception=e,
                     )
+                    error_occurred.send(self, event=event)
                 return
 
             # テキスト抽出と正規化
@@ -155,30 +162,33 @@ class Transcriber(threading.Thread):
                     compression_ratio=metrics[1],
                     no_speech_prob=metrics[2],
                 )
-                self._event_handler.on_segment(segment)
+                segment_event = SegmentTranscribedEvent(segment=segment)
+                segment_transcribed.send(self, event=segment_event)
                 return
 
             elif strategy_result.action == TranscriptionAction.RETRY:
                 # リトライ：エラーを通知して続行
                 attempt, max_attempts = strategy.get_attempt_info()
-                self._event_handler.on_error(
-                    recording_start,
-                    f"Quality issue detected (attempt {attempt - 1}/{max_attempts}): "
+                error_event = ErrorOccurredEvent(
+                    error_time=recording_start,
+                    error_message=f"Quality issue detected (attempt {attempt - 1}/{max_attempts}): "
                     f"{strategy_result.reason} | Retrying with stricter parameters...",
-                    None,
+                    exception=None,
                 )
+                error_occurred.send(self, event=error_event)
                 # whileループで再試行
 
             else:  # TranscriptionAction.DISCARD
                 # 破棄：無音以外の場合はエラーを通知
                 if filter_reason:  # 無音ではない場合のみエラー表示
                     attempt, max_attempts = strategy.get_attempt_info()
-                    self._event_handler.on_error(
-                        recording_start,
-                        f"Quality issue filtered (attempt {attempt}/{max_attempts}): "
+                    error_event = ErrorOccurredEvent(
+                        error_time=recording_start,
+                        error_message=f"Quality issue filtered (attempt {attempt}/{max_attempts}): "
                         f"{strategy_result.reason} | Text: '{text[:50]}...'",
-                        None,
+                        exception=None,
                     )
+                    error_occurred.send(self, event=error_event)
                 return
 
     @property
