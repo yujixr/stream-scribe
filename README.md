@@ -27,8 +27,6 @@ stream_scribe/
 └── presentation/    # CLI、表示
 ```
 
-各コンポーネントは[blinker](https://blinker.readthedocs.io/)によるイベントバスで疎結合に連携し、Webアプリ化等への拡張を容易にしています。
-
 ### 処理フロー
 
 1. **AudioStream** - マイクから32msチャンクで音声を取得し、3秒間のリングバッファでプリロールを保持。ヒステリシス制御により発話区間を安定検出
