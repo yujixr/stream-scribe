@@ -1,6 +1,16 @@
 """HallucinationFilterのテスト"""
 
+import sys
+from unittest.mock import MagicMock
+
 import pytest
+
+# mlx が利用できない環境（Linux CI等）ではモックする
+if "mlx" not in sys.modules:
+    sys.modules["mlx"] = MagicMock()
+    sys.modules["mlx.core"] = MagicMock()
+if "mlx_whisper" not in sys.modules:
+    sys.modules["mlx_whisper"] = MagicMock()
 
 from stream_scribe.infrastructure.ml.filters import HallucinationFilter
 

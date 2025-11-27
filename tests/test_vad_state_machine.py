@@ -1,6 +1,13 @@
 """VadStateMachineのテスト"""
 
+import sys
+from unittest.mock import MagicMock
+
 import pytest
+
+# sounddevice が利用できない環境（Linux CI等）ではモックする
+if "sounddevice" not in sys.modules:
+    sys.modules["sounddevice"] = MagicMock()
 
 from stream_scribe.domain.constants import (
     MAX_SILENCE_CHUNKS,
