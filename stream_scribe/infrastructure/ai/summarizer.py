@@ -14,7 +14,7 @@ from stream_scribe.domain.constants import (
     SUMMARY_SILENCE_TIMEOUT_SEC,
     SUMMARY_TRIGGER_THRESHOLD,
 )
-from stream_scribe.domain.event_bus import (
+from stream_scribe.domain.events import (
     ErrorOccurredEvent,
     SummaryGeneratedEvent,
     error_occurred,

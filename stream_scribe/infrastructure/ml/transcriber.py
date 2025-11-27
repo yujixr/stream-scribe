@@ -18,7 +18,7 @@ from stream_scribe.domain.constants import (
     WHISPER_MODEL,
     WHISPER_PARAMS,
 )
-from stream_scribe.domain.event_bus import (
+from stream_scribe.domain.events import (
     ErrorOccurredEvent,
     SegmentTranscribedEvent,
     error_occurred,

@@ -28,7 +28,7 @@ from stream_scribe.domain.constants import (
     VAD_START_THRESHOLD,
     WHISPER_MODEL,
 )
-from stream_scribe.domain.event_bus import (
+from stream_scribe.domain.events import (
     AudioRecordedEvent,
     ErrorOccurredEvent,
     SegmentTranscribedEvent,

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Stream Scribe - Event Bus (Pub/Sub)
-ドメイン層:イベント駆動アーキテクチャの中核
+Stream Scribe - Events (Pub/Sub)
+ドメイン層: イベント駆動アーキテクチャの中核
 """
 
 from dataclasses import dataclass
