@@ -4,6 +4,9 @@ Stream Scribe - CLI Presentation
 CLIプレゼンテーション層
 """
 
+# CLI Controller
+from .controller import CLIController
+
 # CLI View
 from .view import CLIView
 
@@ -11,6 +14,8 @@ from .view import CLIView
 from .main import main
 
 __all__ = [
+    # Controller
+    "CLIController",
     # View
     "CLIView",
     # Entry Point

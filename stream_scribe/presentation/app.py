@@ -178,7 +178,7 @@ class StreamScribeApp:
 
     # ========== セッション管理 ==========
 
-    def _shutdown(self, graceful: bool = True) -> None:
+    def shutdown(self, graceful: bool = True) -> None:
         """
         セッションの終了処理（コンポーネント停止 + 保存）
 
