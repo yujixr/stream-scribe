@@ -6,7 +6,6 @@ Stream Scribe - Summarizer Module
 
 import threading
 import time
-from datetime import datetime
 
 from stream_scribe.domain.constants import (
     SUMMARY_MODEL,
@@ -15,10 +14,11 @@ from stream_scribe.domain.constants import (
     SUMMARY_TRIGGER_THRESHOLD,
 )
 from stream_scribe.domain import (
-    ErrorOccurredEvent,
+    MessageLevel,
+    MessagePostedEvent,
     SummaryGeneratedEvent,
     TranscriptionSession,
-    error_occurred,
+    message_posted,
     summary_generated,
 )
 
@@ -148,12 +148,11 @@ class RealtimeSummarizer(threading.Thread):
             return updated_summary
         except Exception as e:
             # Claude API呼び出しエラーをイベント経由で通知
-            event = ErrorOccurredEvent(
-                error_time=datetime.now(),
-                error_message="Summary generation failed",
-                exception=e,
+            event = MessagePostedEvent(
+                message=f"Summary generation failed: {e}",
+                level=MessageLevel.ERROR,
             )
-            error_occurred.send(self, event=event)
+            message_posted.send(self, event=event)
             return None
         finally:
             self.is_summarizing = False
@@ -209,10 +208,9 @@ class RealtimeSummarizer(threading.Thread):
                 temperature=0.0,
             )
         except Exception as e:
-            event = ErrorOccurredEvent(
-                error_time=datetime.now(),
-                error_message="Final summary generation failed",
-                exception=e,
+            event = MessagePostedEvent(
+                message=f"Final summary generation failed: {e}",
+                level=MessageLevel.ERROR,
             )
-            error_occurred.send(self, event=event)
+            message_posted.send(self, event=event)
             return None

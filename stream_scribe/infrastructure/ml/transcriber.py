@@ -13,12 +13,10 @@ import mlx_whisper  # type: ignore[import-untyped]
 import numpy as np
 
 from stream_scribe.domain import (
-    ErrorOccurredEvent,
     MessageLevel,
     MessagePostedEvent,
     SegmentTranscribedEvent,
     TranscriptionSegment,
-    error_occurred,
     message_posted,
     segment_transcribed,
 )
@@ -140,12 +138,11 @@ class Transcriber(threading.Thread):
             except Exception as e:
                 # mlx_whisper自体のエラー（構造的な問題）は再試行しない
                 if self.running:
-                    event = ErrorOccurredEvent(
-                        error_time=recording_end,
-                        error_message="Transcription failed",
-                        exception=e,
+                    event = MessagePostedEvent(
+                        message=f"Transcription failed: {e}",
+                        level=MessageLevel.ERROR,
                     )
-                    error_occurred.send(self, event=event)
+                    message_posted.send(self, event=event)
                 return
 
             # テキスト抽出と正規化
@@ -190,26 +187,26 @@ class Transcriber(threading.Thread):
             elif strategy_result.action == TranscriptionAction.RETRY:
                 # リトライ：エラーを通知して続行
                 attempt, max_attempts = strategy.get_attempt_info()
-                error_event = ErrorOccurredEvent(
-                    error_time=recording_start,
-                    error_message=f"Quality issue detected (attempt {attempt - 1}/{max_attempts}): "
+                error_event = MessagePostedEvent(
+                    message=f"Quality issue detected (attempt {attempt - 1}/{max_attempts}): "
                     f"{strategy_result.reason} | Retrying with stricter parameters...",
-                    exception=None,
+                    level=MessageLevel.ERROR,
+                    timestamp=recording_start,
                 )
-                error_occurred.send(self, event=error_event)
+                message_posted.send(self, event=error_event)
                 # whileループで再試行
 
             else:  # TranscriptionAction.DISCARD
                 # 破棄：無音以外の場合はエラーを通知
                 if filter_reason:  # 無音ではない場合のみエラー表示
                     attempt, max_attempts = strategy.get_attempt_info()
-                    error_event = ErrorOccurredEvent(
-                        error_time=recording_start,
-                        error_message=f"Quality issue filtered (attempt {attempt}/{max_attempts}): "
+                    error_event = MessagePostedEvent(
+                        message=f"Quality issue filtered (attempt {attempt}/{max_attempts}): "
                         f"{strategy_result.reason} | Text: '{text[:50]}...'",
-                        exception=None,
+                        level=MessageLevel.ERROR,
+                        timestamp=recording_start,
                     )
-                    error_occurred.send(self, event=error_event)
+                    message_posted.send(self, event=error_event)
                 return
 
     @property

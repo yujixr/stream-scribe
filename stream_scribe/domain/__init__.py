@@ -15,13 +15,11 @@ from stream_scribe.domain.models import (
 # Events (Pub/Sub)
 from stream_scribe.domain.events import (
     AudioRecordedEvent,
-    ErrorOccurredEvent,
     MessageLevel,
     MessagePostedEvent,
     SegmentTranscribedEvent,
     SummaryGeneratedEvent,
     audio_recorded,
-    error_occurred,
     message_posted,
     segment_transcribed,
     summary_generated,
@@ -38,13 +36,11 @@ __all__ = [
     "TranscriptionSession",
     # Events
     "AudioRecordedEvent",
-    "ErrorOccurredEvent",
     "MessageLevel",
     "MessagePostedEvent",
     "SegmentTranscribedEvent",
     "SummaryGeneratedEvent",
     "audio_recorded",
-    "error_occurred",
     "message_posted",
     "segment_transcribed",
     "summary_generated",

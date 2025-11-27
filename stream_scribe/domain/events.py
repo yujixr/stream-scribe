@@ -4,7 +4,7 @@ Stream Scribe - Events (Pub/Sub)
 ドメイン層: イベント駆動アーキテクチャの中核
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 
@@ -19,7 +19,6 @@ from .models import TranscriptionSegment
 EVENT_AUDIO_RECORDED = "audio_recorded"
 EVENT_SEGMENT_TRANSCRIBED = "segment_transcribed"
 EVENT_SUMMARY_GENERATED = "summary_generated"
-EVENT_ERROR_OCCURRED = "error_occurred"
 EVENT_MESSAGE_POSTED = "message_posted"
 
 
@@ -73,28 +72,19 @@ class SummaryGeneratedEvent:
 
 
 @dataclass(frozen=True)
-class ErrorOccurredEvent:
-    """
-    エラー発生イベント
-
-    システム内でエラーが発生した際に発行される。
-    """
-
-    error_time: datetime  # エラー発生時刻
-    error_message: str  # エラーメッセージ
-    exception: Exception | None  # 例外オブジェクト（存在する場合）
-
-
-@dataclass(frozen=True)
 class MessagePostedEvent:
     """
     メッセージ投稿イベント
 
     システム状態の変化やユーザーへの通知メッセージを表示する際に発行される。
+    timestampは省略時に自動的に現在時刻が設定される。
     """
 
     message: str  # 表示するメッセージ
     level: MessageLevel  # メッセージレベル（INFO/SUCCESS/WARNING/ERROR）
+    timestamp: datetime = field(
+        default_factory=datetime.now
+    )  # メッセージタイムスタンプ（省略時は自動設定）
 
 
 # イベント型のユニオン（型チェック用）
@@ -102,7 +92,6 @@ Event = (
     AudioRecordedEvent
     | SegmentTranscribedEvent
     | SummaryGeneratedEvent
-    | ErrorOccurredEvent
     | MessagePostedEvent
 )
 
@@ -116,5 +105,4 @@ Event = (
 audio_recorded = Signal(EVENT_AUDIO_RECORDED)  # AudioRecordedEvent
 segment_transcribed = Signal(EVENT_SEGMENT_TRANSCRIBED)  # SegmentTranscribedEvent
 summary_generated = Signal(EVENT_SUMMARY_GENERATED)  # SummaryGeneratedEvent
-error_occurred = Signal(EVENT_ERROR_OCCURRED)  # ErrorOccurredEvent
 message_posted = Signal(EVENT_MESSAGE_POSTED)  # MessagePostedEvent

@@ -8,7 +8,6 @@ import time
 
 from stream_scribe.domain import (
     AudioRecordedEvent,
-    ErrorOccurredEvent,
     MessageLevel,
     MessagePostedEvent,
     SegmentTranscribedEvent,
@@ -16,7 +15,6 @@ from stream_scribe.domain import (
     TranscriptionError,
     TranscriptionSession,
     audio_recorded,
-    error_occurred,
     message_posted,
     segment_transcribed,
     summary_generated,
@@ -103,14 +101,14 @@ class StreamScribeApp:
         # 音声録音完了イベント → Transcriberへ転送
         audio_recorded.connect(self._on_audio_recorded)
 
-        # 文字起こし完了イベント → セッション記録 + 画面表示 + 要約送信
+        # 文字起こし完了イベント → セッション記録 + 要約送信
         segment_transcribed.connect(self._on_segment_transcribed)
 
-        # 要約生成イベント → セッション記録 + 画面表示
+        # 要約生成イベント → セッション記録
         summary_generated.connect(self._on_summary_generated)
 
-        # エラー発生イベント → セッション記録 + 画面表示
-        error_occurred.connect(self._on_error_occurred)
+        # メッセージ投稿イベント → ERRORレベルのみセッション記録
+        message_posted.connect(self._on_message_posted)
 
     # ========== イベントハンドラ（Pub/Sub） ==========
 
@@ -163,28 +161,20 @@ class StreamScribeApp:
         """
         self.session.add_summary(event.summary, is_final=False)
 
-    def _on_error_occurred(self, _sender: object, event: ErrorOccurredEvent) -> None:
+    def _on_message_posted(self, _sender: object, event: MessagePostedEvent) -> None:
         """
-        エラー発生時のイベントハンドラ
+        メッセージ投稿時のイベントハンドラ
+
+        ERRORレベルのメッセージのみセッションにエラーとして記録する。
 
         Args:
             _sender: イベント送信元オブジェクト（未使用）
-            event: ErrorOccurredEvent（error_time, error_message, exceptionを含む）
+            event: MessagePostedEvent（message, level, timestampを含む）
         """
-        # セッションにエラーを記録
-        error = TranscriptionError(
-            timestamp=event.error_time, message=event.error_message
-        )
-        self.session.add_error(error)
-
-        # UI表示（メッセージイベント発行）
-        message_posted.send(
-            None,
-            event=MessagePostedEvent(
-                message=f"Error at {error.timestamp.isoformat()}: {error.message}",
-                level=MessageLevel.ERROR,
-            ),
-        )
+        # ERRORレベルのメッセージのみセッションに記録
+        if event.level == MessageLevel.ERROR:
+            error = TranscriptionError(timestamp=event.timestamp, message=event.message)
+            self.session.add_error(error)
 
     # ========== セッション管理 ==========
 
