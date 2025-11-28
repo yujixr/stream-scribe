@@ -96,7 +96,7 @@ class CLIController:
         is_file_mode = not audio_source.is_realtime
 
         try:
-            # Type narrowing: self.app is guaranteed to be non-None after initialization
+            # 型の絞り込み: 初期化後、self.appは必ずStreamScribeAppインスタンスになる
             app = self.app
             assert app is not None
 
@@ -173,7 +173,7 @@ class CLIController:
         self, stop_condition: Callable[[], bool] | None = None
     ) -> bool:
         """
-        終了シグナルを待機（InputHandlerの機能を統合）
+        終了シグナルを待機
 
         Args:
             stop_condition: 終了条件を判定する関数。Trueを返すとループ終了。
