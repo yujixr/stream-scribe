@@ -213,7 +213,6 @@ class CLIController:
         """
         if self.view:
             self.view.stop()
-            self.view.clear()
 
         if self.app:
             self.app.shutdown(graceful=graceful)

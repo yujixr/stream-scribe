@@ -127,13 +127,12 @@ class CLIView:
         self._update_thread.start()
 
     def stop(self) -> None:
-        """UI更新を停止"""
+        """UI更新を停止して表示をクリア"""
         self._running = False
         if self._update_thread and self._update_thread.is_alive():
             self._update_thread.join(timeout=STATUS_UPDATE_MANAGER_SHUTDOWN_TIMEOUT_SEC)
 
-    def clear(self) -> None:
-        """表示をクリア"""
+        # 表示をクリア
         with self.lock:
             sys.stdout.write("\r\033[K\n")
             sys.stdout.flush()
