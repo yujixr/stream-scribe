@@ -55,13 +55,13 @@ class AudioSource(ABC):
         pass
 
     @abstractmethod
-    def __enter__(self) -> AudioSource:
-        """コンテキストマネージャのエントリポイント"""
+    def start(self) -> None:
+        """音声ソースを開始"""
         pass
 
     @abstractmethod
-    def __exit__(self, _exc_type: Any, _exc_val: Any, _exc_tb: Any) -> None:
-        """コンテキストマネージャのクリーンアップ"""
+    def stop(self) -> None:
+        """音声ソースを停止"""
         pass
 
     @property
@@ -159,7 +159,7 @@ class MicrophoneAudioSource(AudioSource):
             except queue.Empty:
                 continue
 
-    def __enter__(self) -> MicrophoneAudioSource:
+    def start(self) -> None:
         """マイク入力ストリームを開始"""
         self._running = True
         self._stream = sd.InputStream(
@@ -171,9 +171,8 @@ class MicrophoneAudioSource(AudioSource):
             callback=self._audio_callback,
         )
         self._stream.start()
-        return self
 
-    def __exit__(self, _exc_type: Any, _exc_val: Any, _exc_tb: Any) -> None:
+    def stop(self) -> None:
         """マイク入力ストリームを停止"""
         self._running = False
         if self._stream:
@@ -270,12 +269,11 @@ class FileAudioSource(AudioSource):
             if self.realtime_simulation:
                 time.sleep(chunk_duration)
 
-    def __enter__(self) -> FileAudioSource:
+    def start(self) -> None:
         """音声ファイルを読み込み"""
         self._audio_data = self._load_audio()
-        return self
 
-    def __exit__(self, _exc_type: Any, _exc_val: Any, _exc_tb: Any) -> None:
+    def stop(self) -> None:
         """リソースのクリーンアップ"""
         self._audio_data = None
 

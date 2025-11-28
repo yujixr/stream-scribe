@@ -84,7 +84,13 @@ class CLIController:
             summarizer=self.app.summarizer,
         )
 
-        # 6. ストリーム開始と入力監視
+        # 6. 録音開始
+        # 型の絞り込み: 初期化後、self.appは必ずStreamScribeAppインスタンスになる
+        app = self.app
+        assert app is not None
+
+        app.start_recording()
+
         message_posted.send(
             None,
             event=MessagePostedEvent(
@@ -96,33 +102,28 @@ class CLIController:
         is_file_mode = not audio_source.is_realtime
 
         try:
-            # 型の絞り込み: 初期化後、self.appは必ずStreamScribeAppインスタンスになる
-            app = self.app
-            assert app is not None
-
-            with app.audio_stream as stream:
-                # 終了シグナルを待機
-                stop_condition = (
-                    (
-                        lambda: not stream.is_alive()
-                        and not app.transcriber.is_transcribing
-                    )
-                    if is_file_mode
-                    else None
+            # 終了シグナルを待機
+            stop_condition = (
+                (
+                    lambda: not app.audio_stream.is_alive()
+                    and not app.transcriber.is_transcribing
                 )
-                completed = self._wait_for_exit_signal(stop_condition)
+                if is_file_mode
+                else None
+            )
+            completed = self._wait_for_exit_signal(stop_condition)
 
-                if completed:
-                    # ファイル処理完了
-                    message_posted.send(
-                        None,
-                        event=MessagePostedEvent(
-                            message="\nFile processing completed.",
-                            level=MessageLevel.SUCCESS,
-                        ),
-                    )
-                    self._shutdown(graceful=True)
-                    return
+            if completed:
+                # ファイル処理完了
+                message_posted.send(
+                    None,
+                    event=MessagePostedEvent(
+                        message="\nFile processing completed.",
+                        level=MessageLevel.SUCCESS,
+                    ),
+                )
+                self._shutdown(graceful=True)
+                return
 
         except KeyboardInterrupt:
             # Ctrl-C: 正常終了
@@ -215,4 +216,7 @@ class CLIController:
             self.view.clear()
 
         if self.app:
+            # 録音停止
+            self.app.stop_recording()
+            # セッション終了処理
             self.app.shutdown(graceful=graceful)

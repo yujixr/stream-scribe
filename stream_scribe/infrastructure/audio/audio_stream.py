@@ -9,7 +9,6 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 
 import numpy as np
 
@@ -158,10 +157,13 @@ class AudioStream:
         if self.state_machine.is_recording:
             self._stop_recording()
 
-    def __enter__(self) -> "AudioStream":
-        """コンテキストマネージャ開始"""
+    def start(self) -> None:
+        """音声ストリーム開始"""
+        if self._thread and self._thread.is_alive():
+            return  # すでに起動済み
+
         self._running = True
-        self.audio_source.__enter__()
+        self.audio_source.start()
 
         # 音声処理ループを別スレッドで実行
         self._thread = threading.Thread(
@@ -170,10 +172,17 @@ class AudioStream:
             name="AudioStreamThread",
         )
         self._thread.start()
-        return self
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """コンテキストマネージャ終了"""
+    def pause(self) -> None:
+        """音声ストリーム一時停止（スレッドは継続、処理のみ停止）"""
+        self._running = False
+
+    def resume(self) -> None:
+        """音声ストリーム再開"""
+        self._running = True
+
+    def stop(self) -> None:
+        """音声ストリーム停止"""
         self._running = False
 
         # 録音中なら停止
@@ -185,7 +194,7 @@ class AudioStream:
             self._thread.join(timeout=AUDIO_STREAM_SHUTDOWN_TIMEOUT_SEC)
 
         # AudioSourceをクリーンアップ
-        self.audio_source.__exit__(exc_type, exc_val, exc_tb)
+        self.audio_source.stop()
 
     def is_alive(self) -> bool:
         """音声処理スレッドが実行中かどうかを返す"""

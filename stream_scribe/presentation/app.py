@@ -74,14 +74,12 @@ class StreamScribeApp:
         self.summarizer: RealtimeSummarizer | None = None
         if api_key:
             self.summarizer = RealtimeSummarizer(api_key=api_key)
-            self.summarizer.start()
 
         # 4. HallucinationFilter初期化
         hallucination_filter = HallucinationFilter(banned_phrases=BANNED_PHRASES)
 
         # 5. Transcriber初期化
         self.transcriber = Transcriber(hallucination_filter=hallucination_filter)
-        self.transcriber.start()
 
         # 6. AudioStream初期化
         self.audio_stream = AudioStream(vad=self.vad, audio_source=audio_source)
@@ -175,6 +173,44 @@ class StreamScribeApp:
         if event.level == MessageLevel.ERROR:
             error = TranscriptionError(timestamp=event.timestamp, message=event.message)
             self.session.add_error(error)
+
+    # ========== 録音制御 ==========
+
+    def start_recording(self) -> None:
+        """
+        録音開始（ワーカースレッド起動 + AudioStream開始）
+
+        Note:
+        - 初回のみワーカースレッド（Transcriber, Summarizer）を起動
+        - AudioStreamを開始
+        """
+        # ワーカースレッドを起動（初回のみ）
+        if not self.transcriber.is_alive():
+            self.transcriber.start()
+
+        if self.summarizer and not self.summarizer.is_alive():
+            self.summarizer.start()
+
+        # AudioStreamを開始
+        self.audio_stream.start()
+
+    def pause_recording(self) -> None:
+        """
+        録音一時停止（ワーカースレッドは継続、AudioStreamのみ停止）
+        """
+        self.audio_stream.pause()
+
+    def resume_recording(self) -> None:
+        """
+        録音再開（AudioStreamを再開）
+        """
+        self.audio_stream.resume()
+
+    def stop_recording(self) -> None:
+        """
+        録音停止（ワーカースレッドは継続、キュー処理完了まで待機）
+        """
+        self.audio_stream.stop()
 
     # ========== セッション管理 ==========
 
