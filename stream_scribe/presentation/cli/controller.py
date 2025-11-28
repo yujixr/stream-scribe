@@ -13,6 +13,7 @@ from collections.abc import Callable
 
 from stream_scribe.domain import MessageLevel, MessagePostedEvent, message_posted
 from stream_scribe.domain.constants import INPUT_POLL_INTERVAL_SEC
+from stream_scribe.infrastructure.ai import ClaudeClient
 from stream_scribe.infrastructure.audio import (
     AudioSource,
     FileAudioSource,
@@ -60,22 +61,26 @@ class CLIController:
         # 1. CLIView作成（Signal受信準備）
         self.view = CLIView()
 
-        # 2. APIキー取得
-        api_key = None if self.no_summary else os.getenv("ANTHROPIC_API_KEY")
-        if not self.no_summary and not api_key:
-            message_posted.send(
-                None,
-                event=MessagePostedEvent(
-                    message="Warning: ANTHROPIC_API_KEY is not set. Summary generation disabled.",
-                    level=MessageLevel.WARNING,
-                ),
-            )
+        # 2. LLMクライアント初期化
+        llm_client = None
+        if not self.no_summary:
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+            if api_key:
+                llm_client = ClaudeClient(api_key=api_key)
+            else:
+                message_posted.send(
+                    None,
+                    event=MessagePostedEvent(
+                        message="Warning: ANTHROPIC_API_KEY is not set. Summary generation disabled.",
+                        level=MessageLevel.WARNING,
+                    ),
+                )
 
         # 3. AudioSource生成
         audio_source = self._create_audio_source()
 
         # 4. StreamScribeApp作成
-        self.app = StreamScribeApp(api_key=api_key, audio_source=audio_source)
+        self.app = StreamScribeApp(llm_client=llm_client, audio_source=audio_source)
 
         # 5. UI更新開始
         self.view.start(

@@ -25,7 +25,7 @@ from stream_scribe.domain.constants import (
     TRANSCRIBER_SHUTDOWN_TIMEOUT_SEC,
     TRANSCRIPTION_PROGRESS_POLL_INTERVAL_SEC,
 )
-from stream_scribe.infrastructure.ai import ClaudeClient, RealtimeSummarizer
+from stream_scribe.infrastructure.ai import LLMClient, RealtimeSummarizer
 from stream_scribe.infrastructure.audio import (
     AudioSource,
     AudioStream,
@@ -52,14 +52,14 @@ class StreamScribeApp:
 
     def __init__(
         self,
-        api_key: str | None,
+        llm_client: LLMClient | None,
         audio_source: AudioSource,
     ):
         """
         StreamScribeAppの初期化
 
         Args:
-            api_key: Anthropic APIキー（Noneの場合はサマリー機能無効）
+            llm_client: LLMクライアント（Noneの場合はサマリー機能無効）
             audio_source: 音声入力ソース
         """
         self.is_file_mode = not audio_source.is_realtime
@@ -70,11 +70,10 @@ class StreamScribeApp:
         # 2. セッション初期化
         self.session = TranscriptionSession()
 
-        # 3. RealtimeSummarizer初期化（APIキーが存在する場合のみ）
-        self.summarizer: RealtimeSummarizer | None = None
-        if api_key:
-            llm_client = ClaudeClient(api_key=api_key)
-            self.summarizer = RealtimeSummarizer(llm_client=llm_client)
+        # 3. RealtimeSummarizer初期化（llm_clientが存在する場合のみ）
+        self.summarizer = (
+            RealtimeSummarizer(llm_client=llm_client) if llm_client else None
+        )
 
         # 4. HallucinationFilter初期化
         hallucination_filter = HallucinationFilter(banned_phrases=BANNED_PHRASES)
