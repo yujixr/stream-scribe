@@ -4,20 +4,20 @@ Stream Scribe - CLI Presentation
 CLIプレゼンテーション層
 """
 
-# CLI Controller
+# CLIコントローラー
 from .controller import CLIController
 
-# CLI View
+# CLIビュー
 from .view import CLIView
 
-# CLI Entry Point
+# CLIエントリーポイント
 from .main import main
 
 __all__ = [
-    # Controller
+    # コントローラー
     "CLIController",
-    # View
+    # ビュー
     "CLIView",
-    # Entry Point
+    # エントリーポイント
     "main",
 ]

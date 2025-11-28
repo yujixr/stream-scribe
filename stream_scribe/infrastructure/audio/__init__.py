@@ -4,24 +4,24 @@ Stream Scribe - Audio Infrastructure
 オーディオ関連のインフラストラクチャ層
 """
 
-# Audio Sources
+# 音声ソース
 from .sources import AudioSource, FileAudioSource, MicrophoneAudioSource
 
-# VAD Components
+# VADコンポーネント
 from .vad_detector import VADDetector
 from .vad_state_machine import VadStateMachine
 
-# Audio Stream
+# 音声ストリーム
 from .audio_stream import AudioStream
 
 __all__ = [
-    # Audio Sources
+    # 音声ソース
     "AudioSource",
     "FileAudioSource",
     "MicrophoneAudioSource",
     # VAD
     "VADDetector",
     "VadStateMachine",
-    # Audio Stream
+    # 音声ストリーム
     "AudioStream",
 ]

@@ -4,10 +4,10 @@ Stream Scribe - Persistence Infrastructure
 永続化層のインフラストラクチャ（JSON出力）
 """
 
-# JSON Exporter
+# JSONエクスポート
 from .json_exporter import SessionJsonExporter
 
 __all__ = [
-    # JSON Exporter
+    # JSONエクスポート
     "SessionJsonExporter",
 ]

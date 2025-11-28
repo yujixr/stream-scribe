@@ -4,20 +4,20 @@ Stream Scribe - AI Infrastructure
 AI関連のインフラストラクチャ層（Claude要約生成）
 """
 
-# Summarizer
+# 要約生成
 from .summarizer import RealtimeSummarizer
 
-# Claude Client
+# Claudeクライアント
 from .claude_client import ClaudeClient
 
-# Prompts
+# プロンプト
 from . import prompts
 
 __all__ = [
-    # Summarizer
+    # 要約生成
     "RealtimeSummarizer",
-    # Claude Client
+    # Claudeクライアント
     "ClaudeClient",
-    # Prompts module
+    # プロンプトモジュール
     "prompts",
 ]

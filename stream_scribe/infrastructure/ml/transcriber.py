@@ -60,7 +60,7 @@ class Transcriber(threading.Thread):
             ),
         )
 
-        # モデルを事前ロード（ダミー音声で初期化）
+        # モデルを事前読み込み（仮音声で初期化）
         dummy_audio = np.zeros(SAMPLE_RATE, dtype=np.float32)  # 1秒の無音
         try:
             mlx_whisper.transcribe(

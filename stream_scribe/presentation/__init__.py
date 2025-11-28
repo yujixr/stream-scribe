@@ -4,10 +4,10 @@ Stream Scribe - Presentation Layer
 プレゼンテーション層：UI、アプリケーションロジック
 """
 
-# Core App
+# コアアプリケーション
 from .app import StreamScribeApp
 
 __all__ = [
-    # Core App
+    # コアアプリケーション
     "StreamScribeApp",
 ]

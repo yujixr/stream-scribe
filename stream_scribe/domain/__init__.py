@@ -4,16 +4,16 @@ Stream Scribe - Domain Layer
 ドメイン層：ビジネスロジック、エンティティ、定数
 """
 
-# Models and Data Structures
-from stream_scribe.domain.models import (
+# モデルとデータ構造
+from .models import (
     SummaryEntry,
     TranscriptionError,
     TranscriptionSegment,
     TranscriptionSession,
 )
 
-# Events (Pub/Sub)
-from stream_scribe.domain.events import (
+# イベント（Pub/Sub）
+from .events import (
     AudioRecordedEvent,
     MessageLevel,
     MessagePostedEvent,
@@ -25,16 +25,16 @@ from stream_scribe.domain.events import (
     summary_generated,
 )
 
-# Constants
-from stream_scribe.domain import constants
+# 定数モジュール
+from . import constants
 
 __all__ = [
-    # Models
+    # モデル
     "SummaryEntry",
     "TranscriptionError",
     "TranscriptionSegment",
     "TranscriptionSession",
-    # Events
+    # イベント
     "AudioRecordedEvent",
     "MessageLevel",
     "MessagePostedEvent",
@@ -44,6 +44,6 @@ __all__ = [
     "message_posted",
     "segment_transcribed",
     "summary_generated",
-    # Constants module
+    # 定数モジュール
     "constants",
 ]

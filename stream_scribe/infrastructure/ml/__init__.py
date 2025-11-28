@@ -4,22 +4,22 @@ Stream Scribe - ML Infrastructure
 機械学習関連のインフラストラクチャ層（Whisper文字起こし）
 """
 
-# Transcriber
+# 文字起こし
 from .transcriber import Transcriber
 
-# Filters
+# フィルタ
 from .filters import HallucinationFilter
 
-# Transcription Strategy
+# 文字起こし戦略
 from .transcription_strategy import (
     TranscriptionRetryStrategy,
 )
 
 __all__ = [
-    # Transcriber
+    # 文字起こし
     "Transcriber",
-    # Filters
+    # フィルタ
     "HallucinationFilter",
-    # Strategy
+    # 戦略
     "TranscriptionRetryStrategy",
 ]
