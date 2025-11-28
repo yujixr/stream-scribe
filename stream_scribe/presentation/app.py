@@ -206,25 +206,22 @@ class StreamScribeApp:
         """
         self.audio_stream.resume()
 
-    def stop_recording(self) -> None:
-        """
-        録音停止（ワーカースレッドは継続、キュー処理完了まで待機）
-        """
-        self.audio_stream.stop()
-
     # ========== セッション管理 ==========
 
     def shutdown(self, graceful: bool = True) -> None:
         """
-        セッションの終了処理（コンポーネント停止 + 保存）
+        セッションの終了処理（録音停止 + ワーカー停止 + 保存）
 
         Args:
             graceful: Trueなら残り処理を完了させてから保存、Falseなら即座に終了
         """
-        # 1. Transcriber/Summarizer停止
+        # 1. AudioStream停止
+        self.audio_stream.stop()
+
+        # 2. Transcriber/Summarizer停止
         final_summary = self._stop_workers(graceful)
 
-        # 2. セッション保存
+        # 3. セッション保存
         self._save_session(final_summary)
 
     def _stop_workers(self, graceful: bool) -> str | None:

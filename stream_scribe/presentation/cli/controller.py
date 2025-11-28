@@ -216,7 +216,4 @@ class CLIController:
             self.view.clear()
 
         if self.app:
-            # 録音停止
-            self.app.stop_recording()
-            # セッション終了処理
             self.app.shutdown(graceful=graceful)
