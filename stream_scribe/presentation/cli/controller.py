@@ -63,33 +63,41 @@ class CLIController:
 
         # 2. LLMクライアント初期化
         llm_client = None
+        should_warn_api_key = False
         if not self.no_summary:
             api_key = os.getenv("ANTHROPIC_API_KEY")
             if api_key:
                 llm_client = ClaudeClient(api_key=api_key)
             else:
-                message_posted.send(
-                    None,
-                    event=MessagePostedEvent(
-                        message="Warning: ANTHROPIC_API_KEY is not set. Summary generation disabled.",
-                        level=MessageLevel.WARNING,
-                    ),
-                )
+                should_warn_api_key = True  # 警告はバナー表示後に送る
 
-        # 3. AudioSource生成
+        # 3. バナー表示（最初に表示）
+        self.view.show_banner(llm_client)
+
+        # 4. API keyがない場合は警告を表示
+        if should_warn_api_key:
+            message_posted.send(
+                None,
+                event=MessagePostedEvent(
+                    message="Warning: ANTHROPIC_API_KEY is not set. Summary generation disabled.\n",
+                    level=MessageLevel.WARNING,
+                ),
+            )
+
+        # 5. AudioSource生成
         audio_source = self._create_audio_source()
 
-        # 4. StreamScribeApp作成
+        # 6. StreamScribeApp作成
         self.app = StreamScribeApp(llm_client=llm_client, audio_source=audio_source)
 
-        # 5. UI更新開始
+        # 7. UI更新開始
         self.view.start(
             audio_stream=self.app.audio_stream,
             transcriber=self.app.transcriber,
             summarizer=self.app.summarizer,
         )
 
-        # 6. 録音開始
+        # 8. 録音開始
         # 型の絞り込み: 初期化後、self.appは必ずStreamScribeAppインスタンスになる
         app = self.app
         assert app is not None

@@ -191,7 +191,7 @@ GREETING_SHORT_TEXT_THRESHOLD = 15  # 短文と判定する文字数
 # ========================================
 # リアルタイム要約設定
 # ========================================
-CLAUDE_SUMMARY_MODEL = "claude-haiku-4-5-20251001"  # Claudeモデル名（要約用）
+CLAUDE_MODEL = "claude-haiku-4-5-20251001"  # Claudeモデル名（要約用）
 SUMMARY_MAX_TOKENS = 4096  # 要約用の最大トークン数（全LLM共通）
 SUMMARY_TRIGGER_THRESHOLD = 600  # 要約トリガーの文字数閾値
 SUMMARY_SILENCE_TIMEOUT_SEC = (

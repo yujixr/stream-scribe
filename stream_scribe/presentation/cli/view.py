@@ -26,7 +26,6 @@ from stream_scribe.domain import (
 )
 from stream_scribe.domain.constants import (
     CHUNK_MS,
-    CLAUDE_SUMMARY_MODEL,
     MIN_SPEECH_CHUNKS,
     PREROLL_SEC,
     STATUS_UPDATE_INTERVAL_SEC,
@@ -35,7 +34,7 @@ from stream_scribe.domain.constants import (
     VAD_START_THRESHOLD,
     WHISPER_MODEL,
 )
-from stream_scribe.infrastructure.ai import RealtimeSummarizer
+from stream_scribe.infrastructure.ai import LLMClient, RealtimeSummarizer
 from stream_scribe.infrastructure.audio import AudioStream
 from stream_scribe.infrastructure.ml import Transcriber
 
@@ -67,9 +66,6 @@ class CLIView:
         self._audio_stream: AudioStream | None = None
         self._transcriber: Transcriber | None = None
         self._summarizer: RealtimeSummarizer | None = None
-
-        # 起動バナーを表示
-        self._show_banner()
 
         # Signalサブスクリプション設定
         segment_transcribed.connect(self._on_segment_transcribed)
@@ -302,12 +298,21 @@ class CLIView:
 
             sys.stdout.flush()
 
-    def _show_banner(self) -> None:
-        """起動バナーを表示（初期化時に自動実行）"""
+    def show_banner(self, llm_client: LLMClient | None) -> None:
+        """
+        起動バナーを表示
+
+        Args:
+            llm_client: LLMクライアント（Noneの場合はサマリー無効として表示）
+        """
         # バージョン文字列の表示：.dev以降をカット
         version_display = (
             __version__.split(".dev")[0] if ".dev" in __version__ else __version__
         )
+
+        # LLMバックエンド情報を取得
+        llm_info = llm_client.get_backend_info() if llm_client else "Disabled"
+
         banner = f"""
 {Fore.CYAN}╔══════════════════════════════════════════╗
 ║       Stream Scribe v{version_display:<18}  ║
@@ -317,7 +322,7 @@ class CLIView:
 {Fore.YELLOW}Config:{Style.RESET_ALL}
   - VAD: Silero VAD v5 (ONNX) [Hysteresis: {VAD_START_THRESHOLD}/{VAD_END_THRESHOLD}]
   - Whisper: {WHISPER_MODEL}
-  - Structurer: Claude ({CLAUDE_SUMMARY_MODEL})
+  - Structurer: {llm_info}
   - Min Speech: {MIN_SPEECH_CHUNKS} chunks ({MIN_SPEECH_CHUNKS * CHUNK_MS}ms)
   - Preroll: {PREROLL_SEC}s
 

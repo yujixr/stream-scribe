@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from anthropic import Anthropic
 from anthropic.types import TextBlock
 
-from stream_scribe.domain.constants import CLAUDE_SUMMARY_MODEL, SUMMARY_MAX_TOKENS
+from stream_scribe.domain.constants import CLAUDE_MODEL, SUMMARY_MAX_TOKENS
 
 
 class LLMClient(ABC):
@@ -46,6 +46,16 @@ class LLMClient(ABC):
         """
         pass
 
+    @abstractmethod
+    def get_backend_info(self) -> str:
+        """
+        使用しているLLMバックエンドの情報を返す
+
+        Returns:
+            str: バックエンド情報（例: "Claude (claude-3-5-haiku-20241022)"）
+        """
+        pass
+
 
 class ClaudeClient(LLMClient):
     """
@@ -57,11 +67,11 @@ class ClaudeClient(LLMClient):
     - API通信の抽象化
     """
 
-    def __init__(self, api_key: str, model: str = CLAUDE_SUMMARY_MODEL) -> None:
+    def __init__(self, api_key: str, model: str = CLAUDE_MODEL) -> None:
         """
         Args:
             api_key: Anthropic APIキー
-            model: 使用するClaudeモデル名（デフォルト: CLAUDE_SUMMARY_MODEL）
+            model: 使用するClaudeモデル名（デフォルト: CLAUDE_MODEL）
         """
         self.api_key = api_key
         self.model = model
@@ -103,3 +113,12 @@ class ClaudeClient(LLMClient):
             if isinstance(first_block, TextBlock):
                 return first_block.text.strip()
         return None
+
+    def get_backend_info(self) -> str:
+        """
+        使用しているLLMバックエンドの情報を返す
+
+        Returns:
+            str: バックエンド情報（例: "Claude (claude-3-5-haiku-20241022)"）
+        """
+        return f"Claude ({self.model})"
