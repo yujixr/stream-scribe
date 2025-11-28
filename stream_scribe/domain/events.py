@@ -69,6 +69,7 @@ class SummaryGeneratedEvent:
     """
 
     summary: str  # 生成されたサマリテキスト
+    is_final: bool = False  # 終了時サマリか否か（デフォルト: False = 中間サマリ）
 
 
 @dataclass(frozen=True)

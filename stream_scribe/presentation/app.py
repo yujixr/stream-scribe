@@ -148,16 +148,16 @@ class StreamScribeApp:
         self, _sender: object, event: SummaryGeneratedEvent
     ) -> None:
         """
-        要約生成時のイベントハンドラ（中間サマリ）
+        要約生成時のイベントハンドラ（中間サマリ・終了時サマリ共通）
 
         処理:
         1. セッションに保存
 
         Args:
             _sender: イベント送信元オブジェクト（未使用）
-            event: SummaryGeneratedEvent（summaryを含む）
+            event: SummaryGeneratedEvent
         """
-        self.session.add_summary(event.summary, is_final=False)
+        self.session.add_summary(event.summary, is_final=event.is_final)
 
     def _on_message_posted(self, _sender: object, event: MessagePostedEvent) -> None:
         """
@@ -219,22 +219,18 @@ class StreamScribeApp:
         self.audio_stream.stop()
 
         # 2. Transcriber/Summarizer停止
-        final_summary = self._stop_workers(graceful)
+        self._stop_workers(graceful)
 
         # 3. セッション保存
-        self._save_session(final_summary)
+        self._save_session()
 
-    def _stop_workers(self, graceful: bool) -> str | None:
+    def _stop_workers(self, graceful: bool) -> None:
         """
         ワーカースレッドの停止
 
         Args:
             graceful: Trueなら残り処理を完了させてから停止
-
-        Returns:
-            str | None: 最終サマリ（graceful=Trueの場合のみ）
         """
-        final_summary = None
 
         if graceful:
             # 残りのキューを処理（進捗を表示）
@@ -280,7 +276,8 @@ class StreamScribeApp:
                     ),
                 )
                 # リアルタイムサマリ処理を破棄し、終了時サマリを生成
-                final_summary = self.summarizer.stop(session=self.session)
+                # Note: stop()内のシグナル送信は同期的なため、復帰時点でセッションに追加済み
+                self.summarizer.stop(session=self.session)
                 self.summarizer.join(timeout=SUMMARIZER_SHUTDOWN_TIMEOUT_SEC)
         else:
             self.transcriber.stop(wait_for_queue=False)
@@ -290,18 +287,10 @@ class StreamScribeApp:
                 self.summarizer.join(timeout=1.0)
             self.transcriber.join(timeout=1.0)
 
-        return final_summary
-
-    def _save_session(self, final_summary: str | None) -> None:
+    def _save_session(self) -> None:
         """
-        セッションの保存（サマリ設定 + JSON出力）
-
-        Args:
-            final_summary: 最終サマリ（Noneでなければセッションに設定）
+        セッションの保存（JSON出力）
         """
-        if final_summary:
-            self.session.add_summary(final_summary, is_final=True)
-
         if self.session.get_total_segments() > 0:
             output_path = SessionJsonExporter.save_to_file(self.session)
             message_posted.send(

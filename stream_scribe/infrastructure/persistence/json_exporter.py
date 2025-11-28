@@ -80,7 +80,7 @@ class SessionJsonExporter:
             "summaries": summaries_dict,
         }
 
-        # 最終サマリがあれば追加
+        # 終了時サマリがあれば追加
         if session.final_summary:
             output_data["final_summary"] = {
                 "timestamp": session.final_summary.timestamp.isoformat(),

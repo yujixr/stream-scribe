@@ -33,7 +33,7 @@ class TranscriptionError:
 
 @dataclass
 class SummaryEntry:
-    """要約エントリ（中間・最終サマリ）"""
+    """要約エントリ（中間・終了時サマリ）"""
 
     timestamp: datetime
     content: str
@@ -47,7 +47,7 @@ class TranscriptionSession:
     - セグメントの集約
     - エラーの集約
     - セッション状態の管理
-    - サマリ履歴の保持（中間サマリ + 最終サマリ）
+    - サマリ履歴の保持（中間サマリ + 終了時サマリ）
 
     Note: 永続化ロジックは infrastructure/persistence に分離
     """
@@ -73,7 +73,7 @@ class TranscriptionSession:
 
         Args:
             summary: サマリ内容
-            is_final: 最終サマリかどうか（Trueの場合はsummariesではなくfinal_summaryに設定）
+            is_final: 終了時サマリかどうか（Trueの場合はsummariesではなくfinal_summaryに設定）
         """
         entry = SummaryEntry(timestamp=datetime.now(), content=summary)
         if is_final:

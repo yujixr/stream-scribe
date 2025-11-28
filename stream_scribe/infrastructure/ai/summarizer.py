@@ -171,16 +171,13 @@ class RealtimeSummarizer(threading.Thread):
                     event = SummaryGeneratedEvent(summary=summary)
                     summary_generated.send(self, event=event)
 
-    def stop(self, session: TranscriptionSession | None = None) -> str | None:
+    def stop(self, session: TranscriptionSession | None = None) -> None:
         """
         スレッド停止と終了時サマリの生成
 
         Args:
             session: 終了時サマリを生成する場合はTranscriptionSessionを渡す。
                     Noneの場合は即座に終了する。
-
-        Returns:
-            str | None: 終了時サマリ（sessionが渡された場合のみ）
         """
         self.running = False
 
@@ -193,24 +190,29 @@ class RealtimeSummarizer(threading.Thread):
 
         # セッションが渡されなければ即座に終了
         if session is None or not session.segments:
-            return None
+            return
 
         # 終了時サマリ用の戦略を使用
         final_strategy = FinalSummaryPromptStrategy()
         system_prompt = final_strategy.system_prompt
         user_content = final_strategy.build_user_prompt(session=session)
 
-        # 終了時サマリを生成
+        # 終了時サマリを生成してシグナル送信
         try:
-            return self.claude_client(
+            final_summary = self.claude_client(
                 system_prompt=system_prompt,
                 user_prompt=user_content,
                 temperature=0.0,
             )
+            # 終了時サマリイベントを送信
+            if final_summary:
+                summary_event = SummaryGeneratedEvent(
+                    summary=final_summary, is_final=True
+                )
+                summary_generated.send(self, event=summary_event)
         except Exception as e:
-            event = MessagePostedEvent(
+            error_event = MessagePostedEvent(
                 message=f"Final summary generation failed: {e}",
                 level=MessageLevel.ERROR,
             )
-            message_posted.send(self, event=event)
-            return None
+            message_posted.send(self, event=error_event)
