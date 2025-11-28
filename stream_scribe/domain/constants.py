@@ -191,11 +191,11 @@ GREETING_SHORT_TEXT_THRESHOLD = 15  # 短文と判定する文字数
 # ========================================
 # リアルタイム要約設定
 # ========================================
-SUMMARY_MODEL = "claude-sonnet-4-5-20250929"  # 使用するClaudeモデル
+SUMMARY_MODEL = "claude-haiku-4-5-20251001"  # 使用するClaudeモデル
 SUMMARY_MAX_TOKENS = 4096  # Claude APIの最大トークン数
-SUMMARY_TRIGGER_THRESHOLD = 400  # 要約トリガーの文字数閾値
+SUMMARY_TRIGGER_THRESHOLD = 600  # 要約トリガーの文字数閾値
 SUMMARY_SILENCE_TIMEOUT_SEC = (
-    30.0  # 無音タイムアウト（最後のセグメント追加から経過秒数）
+    60.0  # 無音タイムアウト（最後のセグメント追加から経過秒数）
 )
 SUMMARY_QUEUE_GET_TIMEOUT_SEC = 1.0  # RealtimeSummarizer キュー取得タイムアウト
 SUMMARIZER_SHUTDOWN_TIMEOUT_SEC = 2.0  # 要約スレッド停止のタイムアウト
