@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
 Stream Scribe - Summarizer Module
-インフラ層：Claude APIによるリアルタイム会話構造化
+インフラ層：LLMによるリアルタイム会話構造化
 """
 
 import threading
 import time
 
 from stream_scribe.domain.constants import (
-    SUMMARY_MODEL,
     SUMMARY_QUEUE_GET_TIMEOUT_SEC,
     SUMMARY_SILENCE_TIMEOUT_SEC,
     SUMMARY_TRIGGER_THRESHOLD,
@@ -22,7 +21,7 @@ from stream_scribe.domain import (
     summary_generated,
 )
 
-from .claude_client import ClaudeClient
+from .llm_client import LLMClient
 from .prompts import (
     FinalSummaryPromptStrategy,
     PromptStrategy,
@@ -36,22 +35,21 @@ class RealtimeSummarizer(threading.Thread):
 
     責務:
     - テキストのバッファリング
-    - Claude APIによる会話の構造化とツリー化
+    - LLMによる会話の構造化とツリー化
     - トピック抽出と時系列ログの自動生成
     - イベント駆動アーキテクチャ（Pub/Sub）
     """
 
     def __init__(
         self,
-        api_key: str,
-        model: str = SUMMARY_MODEL,
+        llm_client: LLMClient,
         prompt_strategy: PromptStrategy | None = None,
     ) -> None:
         super().__init__(daemon=True)
         self.running = True
 
-        # Claude APIクライアント
-        self.claude_client = ClaudeClient(api_key=api_key, model=model)
+        # LLMクライアント（DI）
+        self.llm_client = llm_client
 
         # プロンプト戦略（DI: デフォルトはリアルタイム要約）
         self.prompt_strategy = prompt_strategy or RealtimePromptStrategy()
@@ -112,7 +110,7 @@ class RealtimeSummarizer(threading.Thread):
 
     def _process_buffer(self) -> str | None:
         """
-        バッファテキストを処理してClaude APIで要約を生成
+        バッファテキストを処理してLLM APIで要約を生成
 
         Returns:
             str | None: 生成された要約 or None
@@ -134,8 +132,8 @@ class RealtimeSummarizer(threading.Thread):
 
         self.is_summarizing = True
         try:
-            # Claude APIクライアント経由で生成
-            updated_summary = self.claude_client(
+            # LLMクライアント経由で生成
+            updated_summary = self.llm_client(
                 system_prompt=system_prompt,
                 user_prompt=user_content,
                 temperature=0.0,
@@ -147,7 +145,7 @@ class RealtimeSummarizer(threading.Thread):
 
             return updated_summary
         except Exception as e:
-            # Claude API呼び出しエラーをイベント経由で通知
+            # LLM API呼び出しエラーをイベント経由で通知
             event = MessagePostedEvent(
                 message=f"Summary generation failed: {e}",
                 level=MessageLevel.ERROR,
@@ -199,7 +197,7 @@ class RealtimeSummarizer(threading.Thread):
 
         # 終了時サマリを生成してシグナル送信
         try:
-            final_summary = self.claude_client(
+            final_summary = self.llm_client(
                 system_prompt=system_prompt,
                 user_prompt=user_content,
                 temperature=0.0,

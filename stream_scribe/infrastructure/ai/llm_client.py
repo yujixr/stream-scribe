@@ -1,16 +1,53 @@
 #!/usr/bin/env python3
 """
-Stream Scribe - Claude API Client
-Claude APIとの通信を担当するクライアントモジュール
+Stream Scribe - LLM Clients Module
+LLMクライアントの抽象化とアダプタパターンを提供するモジュール
 """
+
+from abc import ABC, abstractmethod
 
 from anthropic import Anthropic
 from anthropic.types import TextBlock
 
-from stream_scribe.domain.constants import SUMMARY_MAX_TOKENS
+from stream_scribe.domain.constants import CLAUDE_SUMMARY_MODEL, SUMMARY_MAX_TOKENS
 
 
-class ClaudeClient:
+class LLMClient(ABC):
+    """
+    LLMクライアントの抽象基底クラス
+
+    テキスト生成APIへのインターフェースを統一し、
+    異なるLLMプロバイダ（Claude、OpenAIなど）を
+    同じインターフェースで扱えるようにする。
+    """
+
+    @abstractmethod
+    def __call__(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.0,
+        max_tokens: int = SUMMARY_MAX_TOKENS,
+    ) -> str | None:
+        """
+        LLM APIでテキストを生成
+
+        Args:
+            system_prompt: システムプロンプト
+            user_prompt: ユーザープロンプト
+            temperature: 生成の確率性（0.0=決定論的、1.0=最大ランダム性）
+            max_tokens: 最大トークン数
+
+        Returns:
+            str | None: 生成されたテキスト or None
+
+        Raises:
+            Exception: API呼び出しエラー
+        """
+        pass
+
+
+class ClaudeClient(LLMClient):
     """
     Claude APIクライアント
 
@@ -20,11 +57,11 @@ class ClaudeClient:
     - API通信の抽象化
     """
 
-    def __init__(self, api_key: str, model: str) -> None:
+    def __init__(self, api_key: str, model: str = CLAUDE_SUMMARY_MODEL) -> None:
         """
         Args:
             api_key: Anthropic APIキー
-            model: 使用するClaudeモデル名
+            model: 使用するClaudeモデル名（デフォルト: CLAUDE_SUMMARY_MODEL）
         """
         self.api_key = api_key
         self.model = model

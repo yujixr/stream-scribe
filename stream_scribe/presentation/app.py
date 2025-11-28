@@ -25,7 +25,7 @@ from stream_scribe.domain.constants import (
     TRANSCRIBER_SHUTDOWN_TIMEOUT_SEC,
     TRANSCRIPTION_PROGRESS_POLL_INTERVAL_SEC,
 )
-from stream_scribe.infrastructure.ai import RealtimeSummarizer
+from stream_scribe.infrastructure.ai import ClaudeClient, RealtimeSummarizer
 from stream_scribe.infrastructure.audio import (
     AudioSource,
     AudioStream,
@@ -73,7 +73,8 @@ class StreamScribeApp:
         # 3. RealtimeSummarizer初期化（APIキーが存在する場合のみ）
         self.summarizer: RealtimeSummarizer | None = None
         if api_key:
-            self.summarizer = RealtimeSummarizer(api_key=api_key)
+            llm_client = ClaudeClient(api_key=api_key)
+            self.summarizer = RealtimeSummarizer(llm_client=llm_client)
 
         # 4. HallucinationFilter初期化
         hallucination_filter = HallucinationFilter(banned_phrases=BANNED_PHRASES)

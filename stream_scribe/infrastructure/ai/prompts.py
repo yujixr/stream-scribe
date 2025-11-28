@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Stream Scribe - Prompt Templates
-Claude API用のプロンプトテンプレートを管理するモジュール
+LLM API用のプロンプトテンプレートを管理するモジュール
 """
 
 from typing import Protocol

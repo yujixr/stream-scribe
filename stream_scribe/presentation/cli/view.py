@@ -26,11 +26,11 @@ from stream_scribe.domain import (
 )
 from stream_scribe.domain.constants import (
     CHUNK_MS,
+    CLAUDE_SUMMARY_MODEL,
     MIN_SPEECH_CHUNKS,
     PREROLL_SEC,
     STATUS_UPDATE_INTERVAL_SEC,
     STATUS_UPDATE_MANAGER_SHUTDOWN_TIMEOUT_SEC,
-    SUMMARY_MODEL,
     VAD_END_THRESHOLD,
     VAD_START_THRESHOLD,
     WHISPER_MODEL,
@@ -317,7 +317,7 @@ class CLIView:
 {Fore.YELLOW}Config:{Style.RESET_ALL}
   - VAD: Silero VAD v5 (ONNX) [Hysteresis: {VAD_START_THRESHOLD}/{VAD_END_THRESHOLD}]
   - Whisper: {WHISPER_MODEL}
-  - Structurer: Claude ({SUMMARY_MODEL})
+  - Structurer: Claude ({CLAUDE_SUMMARY_MODEL})
   - Min Speech: {MIN_SPEECH_CHUNKS} chunks ({MIN_SPEECH_CHUNKS * CHUNK_MS}ms)
   - Preroll: {PREROLL_SEC}s
 

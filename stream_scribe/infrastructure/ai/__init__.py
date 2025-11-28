@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
 Stream Scribe - AI Infrastructure
-AI関連のインフラストラクチャ層（Claude要約生成）
+AI関連のインフラストラクチャ層（LLM要約生成）
 """
 
 # 要約生成
 from .summarizer import RealtimeSummarizer
 
-# Claudeクライアント
-from .claude_client import ClaudeClient
+# LLMクライアント
+from .llm_client import ClaudeClient, LLMClient
 
 # プロンプト
 from . import prompts
@@ -16,8 +16,9 @@ from . import prompts
 __all__ = [
     # 要約生成
     "RealtimeSummarizer",
-    # Claudeクライアント
+    # LLMクライアント
     "ClaudeClient",
+    "LLMClient",
     # プロンプトモジュール
     "prompts",
 ]
