@@ -17,12 +17,12 @@ import numpy as np
 import sounddevice as sd  # type: ignore[import-untyped]
 import soundfile as sf  # type: ignore[import-untyped]
 
-from stream_scribe.domain import MessageLevel, MessagePostedEvent, message_posted
-from stream_scribe.domain.constants import (
-    AUDIO_BLOCK_SEC,
-    AUDIO_QUEUE_GET_TIMEOUT_SEC,
-    CHUNK_SIZE,
-    SAMPLE_RATE,
+from stream_scribe.domain import (
+    AudioSettings,
+    CoreSettings,
+    MessageLevel,
+    MessagePostedEvent,
+    message_posted,
 )
 
 
@@ -106,11 +106,20 @@ class MicrophoneAudioSource(AudioSource):
             if device_info["max_input_channels"] > 0
         ]
 
-    def __init__(self, device_id: int | None = None) -> None:
+    def __init__(
+        self,
+        core_settings: CoreSettings,
+        audio_settings: AudioSettings,
+        device_id: int | None = None,
+    ) -> None:
         """
         Args:
+            core_settings: コア設定（サンプルレート、チャンクサイズ）
+            audio_settings: オーディオ設定
             device_id: 使用するオーディオデバイスのID（Noneの場合はデフォルトデバイス）
         """
+        self.core_settings = core_settings
+        self.audio_settings = audio_settings
         self._device_id = device_id
         self._queue: queue.Queue[np.ndarray] = queue.Queue()
         self._stream: sd.InputStream | None = None
@@ -142,18 +151,21 @@ class MicrophoneAudioSource(AudioSource):
         マイクからの音声データをチャンク単位で yield する
 
         Yields:
-            np.ndarray: CHUNK_SIZE（512）サンプルのfloat32音声データ
+            np.ndarray: chunk_sizeサンプルのfloat32音声データ
         """
+        chunk_size = self.core_settings.chunk_size
         while self._running:
             try:
                 # キューから音声データを取得（タイムアウト付き）
-                audio_block = self._queue.get(timeout=AUDIO_QUEUE_GET_TIMEOUT_SEC)
+                audio_block = self._queue.get(
+                    timeout=self.audio_settings.queue_get_timeout_sec
+                )
                 self._chunk_buffer = np.append(self._chunk_buffer, audio_block)
 
-                # CHUNK_SIZE単位でyield
-                while len(self._chunk_buffer) >= CHUNK_SIZE:
-                    chunk = self._chunk_buffer[:CHUNK_SIZE]
-                    self._chunk_buffer = self._chunk_buffer[CHUNK_SIZE:]
+                # chunk_size単位でyield
+                while len(self._chunk_buffer) >= chunk_size:
+                    chunk = self._chunk_buffer[:chunk_size]
+                    self._chunk_buffer = self._chunk_buffer[chunk_size:]
                     yield chunk
 
             except queue.Empty:
@@ -164,10 +176,12 @@ class MicrophoneAudioSource(AudioSource):
         self._running = True
         self._stream = sd.InputStream(
             device=self._device_id,
-            samplerate=SAMPLE_RATE,
+            samplerate=self.core_settings.sample_rate,
             channels=1,
             dtype=np.float32,
-            blocksize=int(SAMPLE_RATE * AUDIO_BLOCK_SEC),
+            blocksize=int(
+                self.core_settings.sample_rate * self.audio_settings.block_sec
+            ),
             callback=self._audio_callback,
         )
         self._stream.start()
@@ -196,14 +210,17 @@ class FileAudioSource(AudioSource):
 
     def __init__(
         self,
+        core_settings: CoreSettings,
         file_path: str,
         realtime_simulation: bool = False,
     ) -> None:
         """
         Args:
+            core_settings: コア設定（サンプルレート、チャンクサイズ）
             file_path: 音声ファイルのパス (mp3/wav 等)
             realtime_simulation: True の場合、実時間に合わせて sleep を入れる
         """
+        self.core_settings = core_settings
         self.file_path = file_path
         self.realtime_simulation = realtime_simulation
         self._audio_data: np.ndarray | None = None
@@ -211,10 +228,10 @@ class FileAudioSource(AudioSource):
 
     def _load_audio(self) -> np.ndarray:
         """
-        音声ファイルを読み込み、16kHzモノラルに変換
+        音声ファイルを読み込み、設定されたサンプルレートのモノラルに変換
 
         Returns:
-            np.ndarray: 16kHzモノラルのfloat32音声データ
+            np.ndarray: 設定されたサンプルレートのモノラルfloat32音声データ
         """
         # soundfileで読み込み（ネイティブサンプルレート）
         audio_data, original_sr = sf.read(self.file_path, dtype="float32")
@@ -224,10 +241,12 @@ class FileAudioSource(AudioSource):
             audio_data = np.mean(audio_data, axis=1)
 
         # リサンプリングが必要な場合
-        if original_sr != SAMPLE_RATE:
+        if original_sr != self.core_settings.sample_rate:
             # 線形補間によるリサンプリング
             original_length = len(audio_data)
-            target_length = int(original_length * SAMPLE_RATE / original_sr)
+            target_length = int(
+                original_length * self.core_settings.sample_rate / original_sr
+            )
             audio_data = np.interp(
                 np.linspace(0, original_length - 1, target_length),
                 np.arange(original_length),
@@ -235,7 +254,7 @@ class FileAudioSource(AudioSource):
             ).astype(np.float32)
 
         # 音声の長さを記録
-        self._duration = len(audio_data) / SAMPLE_RATE
+        self._duration = len(audio_data) / self.core_settings.sample_rate
 
         return np.asarray(audio_data, dtype=np.float32)
 
@@ -244,23 +263,24 @@ class FileAudioSource(AudioSource):
         音声ファイルからのデータをチャンク単位で yield する
 
         Yields:
-            np.ndarray: CHUNK_SIZE（512）サンプルのfloat32音声データ
+            np.ndarray: chunk_sizeサンプルのfloat32音声データ
         """
         if self._audio_data is None:
             return
 
+        chunk_size = self.core_settings.chunk_size
         # チャンクごとの時間（秒）
-        chunk_duration = CHUNK_SIZE / SAMPLE_RATE
+        chunk_duration = chunk_size / self.core_settings.sample_rate
 
-        # CHUNK_SIZEごとにスライスしてyield
+        # chunk_sizeごとにスライスしてyield
         total_samples = len(self._audio_data)
-        for i in range(0, total_samples, CHUNK_SIZE):
-            chunk = self._audio_data[i : i + CHUNK_SIZE]
+        for i in range(0, total_samples, chunk_size):
+            chunk = self._audio_data[i : i + chunk_size]
 
             # 最後のチャンクが短い場合はゼロパディング
-            if len(chunk) < CHUNK_SIZE:
+            if len(chunk) < chunk_size:
                 chunk = np.pad(
-                    chunk, (0, CHUNK_SIZE - len(chunk)), mode="constant"
+                    chunk, (0, chunk_size - len(chunk)), mode="constant"
                 ).astype(np.float32)
 
             yield chunk

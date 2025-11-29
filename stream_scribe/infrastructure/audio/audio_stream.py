@@ -12,11 +12,11 @@ from datetime import datetime
 
 import numpy as np
 
-from stream_scribe.domain import AudioRecordedEvent, audio_recorded
-from stream_scribe.domain.constants import (
-    AUDIO_STREAM_SHUTDOWN_TIMEOUT_SEC,
-    MIN_SPEECH_CHUNKS,
-    PREROLL_CHUNKS,
+from stream_scribe.domain import (
+    AudioRecordedEvent,
+    CoreSettings,
+    VADDetectionSettings,
+    audio_recorded,
 )
 
 from .sources import AudioSource
@@ -54,18 +54,23 @@ class AudioStream:
         self,
         vad: VADDetector,
         audio_source: AudioSource,
+        vad_detection_settings: VADDetectionSettings,
+        core_settings: CoreSettings,
     ):
         self.vad = vad
         self.audio_source = audio_source
+        self.vad_detection_settings = vad_detection_settings
+        self.core_settings = core_settings
 
         # プリロール用リングバッファ（collections.deque）
-        self.preroll_ring_buffer: deque[np.ndarray] = deque(maxlen=PREROLL_CHUNKS)
+        preroll_chunks = vad_detection_settings.preroll_chunks(core_settings.chunk_ms)
+        self.preroll_ring_buffer: deque[np.ndarray] = deque(maxlen=preroll_chunks)
 
         # 録音バッファ
         self.recording_buffer: list[np.ndarray] = []
 
-        # VAD状態遷移ロジック（委譲）
-        self.state_machine = VadStateMachine()
+        # VAD状態遷移ロジック
+        self.state_machine = VadStateMachine(vad_detection_settings)
 
         # 録音タイムスタンプ
         self.recording_start: datetime | None = None
@@ -129,7 +134,10 @@ class AudioStream:
         """録音終了（イベント発行）"""
         recording_end = datetime.now()
 
-        if len(self.recording_buffer) > MIN_SPEECH_CHUNKS and self.recording_start:
+        if (
+            len(self.recording_buffer) > self.vad_detection_settings.min_speech_chunks
+            and self.recording_start
+        ):
             # numpy配列に変換
             audio = np.concatenate(self.recording_buffer)
 
@@ -191,7 +199,9 @@ class AudioStream:
 
         # スレッド終了を待つ
         if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=AUDIO_STREAM_SHUTDOWN_TIMEOUT_SEC)
+            self._thread.join(
+                timeout=self.vad_detection_settings.stream_shutdown_timeout_sec
+            )
 
         # AudioSourceをクリーンアップ
         self.audio_source.stop()

@@ -11,6 +11,7 @@ from stream_scribe.domain import (
     MessageLevel,
     MessagePostedEvent,
     SegmentTranscribedEvent,
+    Settings,
     SummaryGeneratedEvent,
     TranscriptionError,
     TranscriptionSession,
@@ -18,12 +19,6 @@ from stream_scribe.domain import (
     message_posted,
     segment_transcribed,
     summary_generated,
-)
-from stream_scribe.domain.constants import (
-    BANNED_PHRASES,
-    SUMMARIZER_SHUTDOWN_TIMEOUT_SEC,
-    TRANSCRIBER_SHUTDOWN_TIMEOUT_SEC,
-    TRANSCRIPTION_PROGRESS_POLL_INTERVAL_SEC,
 )
 from stream_scribe.infrastructure.ai import LLMClient, RealtimeSummarizer
 from stream_scribe.infrastructure.audio import (
@@ -54,6 +49,7 @@ class StreamScribeApp:
         self,
         llm_client: LLMClient | None,
         audio_source: AudioSource,
+        settings: Settings,
     ):
         """
         StreamScribeAppの初期化
@@ -61,28 +57,43 @@ class StreamScribeApp:
         Args:
             llm_client: LLMクライアント（Noneの場合はサマリー機能無効）
             audio_source: 音声入力ソース
+            settings: アプリケーション設定
         """
+        self.settings = settings
         self.is_file_mode = not audio_source.is_realtime
 
         # 1. VAD初期化
-        self.vad = VADDetector()
+        self.vad = VADDetector(
+            core_settings=settings.core, vad_model_settings=settings.vad.model
+        )
 
         # 2. セッション初期化
         self.session = TranscriptionSession()
 
         # 3. RealtimeSummarizer初期化（llm_clientが存在する場合のみ）
         self.summarizer = (
-            RealtimeSummarizer(llm_client=llm_client) if llm_client else None
+            RealtimeSummarizer(llm_client=llm_client, settings=settings.summary)
+            if llm_client
+            else None
         )
 
         # 4. HallucinationFilter初期化
-        hallucination_filter = HallucinationFilter(banned_phrases=BANNED_PHRASES)
+        hallucination_filter = HallucinationFilter(settings=settings.hallucination)
 
         # 5. Transcriber初期化
-        self.transcriber = Transcriber(hallucination_filter=hallucination_filter)
+        self.transcriber = Transcriber(
+            hallucination_filter=hallucination_filter,
+            core_settings=settings.core,
+            whisper_settings=settings.whisper,
+        )
 
         # 6. AudioStream初期化
-        self.audio_stream = AudioStream(vad=self.vad, audio_source=audio_source)
+        self.audio_stream = AudioStream(
+            vad=self.vad,
+            audio_source=audio_source,
+            vad_detection_settings=settings.vad.detection,
+            core_settings=settings.core,
+        )
 
         # 7. イベントサブスクリプション設定（Pub/Sub）
         self._setup_event_subscriptions()
@@ -253,10 +264,12 @@ class StreamScribeApp:
                             ),
                         )
                         last_remaining = remaining
-                    time.sleep(TRANSCRIPTION_PROGRESS_POLL_INTERVAL_SEC)
+                    time.sleep(
+                        self.settings.app.transcription_progress_poll_interval_sec
+                    )
 
             self.transcriber.stop(wait_for_queue=True)
-            self.transcriber.join(timeout=TRANSCRIBER_SHUTDOWN_TIMEOUT_SEC)
+            self.transcriber.join(timeout=self.settings.whisper.shutdown_timeout_sec)
 
             if self.transcriber.is_alive():
                 message_posted.send(
@@ -278,7 +291,7 @@ class StreamScribeApp:
                 # リアルタイムサマリ処理を破棄し、終了時サマリを生成
                 # Note: stop()内のシグナル送信は同期的なため、復帰時点でセッションに追加済み
                 self.summarizer.stop(session=self.session)
-                self.summarizer.join(timeout=SUMMARIZER_SHUTDOWN_TIMEOUT_SEC)
+                self.summarizer.join(timeout=self.settings.summary.shutdown_timeout_sec)
         else:
             self.transcriber.stop(wait_for_queue=False)
             if self.summarizer:

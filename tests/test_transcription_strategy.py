@@ -12,7 +12,7 @@ if "mlx" not in sys.modules:
 if "mlx_whisper" not in sys.modules:
     sys.modules["mlx_whisper"] = MagicMock()
 
-from stream_scribe.domain.constants import MAX_TRANSCRIPTION_RETRIES, WHISPER_PARAMS
+from stream_scribe.domain import WhisperSettings
 from stream_scribe.infrastructure.ml.transcription_strategy import (
     StrategyResult,
     TranscriptionAction,
@@ -21,9 +21,15 @@ from stream_scribe.infrastructure.ml.transcription_strategy import (
 
 
 @pytest.fixture
-def strategy() -> TranscriptionRetryStrategy:
+def settings() -> WhisperSettings:
+    """デフォルトのWhisperSettings"""
+    return WhisperSettings()
+
+
+@pytest.fixture
+def strategy(settings: WhisperSettings) -> TranscriptionRetryStrategy:
     """新しいTranscriptionRetryStrategyインスタンスを作成"""
-    return TranscriptionRetryStrategy()
+    return TranscriptionRetryStrategy(settings)
 
 
 class TestInitialState:
@@ -36,16 +42,19 @@ class TestInitialState:
         assert strategy.current_attempt == 0
 
     def test_initial_params_are_first_whisper_params(
-        self, strategy: TranscriptionRetryStrategy
+        self, strategy: TranscriptionRetryStrategy, settings: WhisperSettings
     ) -> None:
         """初期パラメータは最初のWHISPER_PARAMS"""
-        assert strategy.get_current_params() == WHISPER_PARAMS[0]
+        expected_params = settings.params[0].model_dump()
+        assert strategy.get_current_params() == expected_params
 
-    def test_initial_attempt_info(self, strategy: TranscriptionRetryStrategy) -> None:
+    def test_initial_attempt_info(
+        self, strategy: TranscriptionRetryStrategy, settings: WhisperSettings
+    ) -> None:
         """初期試行情報は(1, MAX_TRANSCRIPTION_RETRIES)"""
         attempt, max_attempts = strategy.get_attempt_info()
         assert attempt == 1
-        assert max_attempts == MAX_TRANSCRIPTION_RETRIES
+        assert max_attempts == settings.max_transcription_retries
 
 
 class TestReset:
@@ -129,23 +138,23 @@ class TestRetryAction:
         assert strategy.current_attempt == 2
 
     def test_retry_provides_next_params(
-        self, strategy: TranscriptionRetryStrategy
+        self, strategy: TranscriptionRetryStrategy, settings: WhisperSettings
     ) -> None:
         """RETRYは次のパラメータを提供"""
         result = strategy.evaluate_result("bad", "Error")
-        assert result.next_params == WHISPER_PARAMS[1]
+        assert result.next_params == settings.params[1].model_dump()
 
         result = strategy.evaluate_result("bad", "Error")
-        assert result.next_params == WHISPER_PARAMS[2]
+        assert result.next_params == settings.params[2].model_dump()
 
     def test_retry_until_max_retries_minus_one(
-        self, strategy: TranscriptionRetryStrategy
+        self, strategy: TranscriptionRetryStrategy, settings: WhisperSettings
     ) -> None:
         """最大リトライ - 1 回まではRETRY"""
-        for i in range(MAX_TRANSCRIPTION_RETRIES - 1):
+        for i in range(settings.max_transcription_retries - 1):
             result = strategy.evaluate_result("bad", f"Error {i}")
             assert result.action == TranscriptionAction.RETRY
-            assert result.next_params == WHISPER_PARAMS[i + 1]
+            assert result.next_params == settings.params[i + 1].model_dump()
 
 
 class TestDiscardAction:
@@ -172,11 +181,11 @@ class TestDiscardAction:
         assert result.action == TranscriptionAction.ACCEPT
 
     def test_discards_after_max_retries(
-        self, strategy: TranscriptionRetryStrategy
+        self, strategy: TranscriptionRetryStrategy, settings: WhisperSettings
     ) -> None:
         """最大リトライ到達後はDISCARD"""
-        # MAX_TRANSCRIPTION_RETRIES - 1 回RETRYする
-        for i in range(MAX_TRANSCRIPTION_RETRIES - 1):
+        # settings.max_transcription_retries - 1 回RETRYする
+        for i in range(settings.max_transcription_retries - 1):
             result = strategy.evaluate_result("bad", f"Error {i}")
             assert result.action == TranscriptionAction.RETRY
 
@@ -187,11 +196,11 @@ class TestDiscardAction:
         assert "Max retries reached" in result.reason
 
     def test_discard_includes_last_error_reason(
-        self, strategy: TranscriptionRetryStrategy
+        self, strategy: TranscriptionRetryStrategy, settings: WhisperSettings
     ) -> None:
         """DISCARDは最後のエラー理由を含む"""
         # 最大までリトライ
-        for _ in range(MAX_TRANSCRIPTION_RETRIES - 1):
+        for _ in range(settings.max_transcription_retries - 1):
             strategy.evaluate_result("bad", "Some error")
 
         result = strategy.evaluate_result("bad", "Character repetition detected")
@@ -251,12 +260,12 @@ class TestAttemptInfo:
         assert attempt == 3
 
     def test_max_attempts_is_constant(
-        self, strategy: TranscriptionRetryStrategy
+        self, strategy: TranscriptionRetryStrategy, settings: WhisperSettings
     ) -> None:
         """最大試行回数は定数"""
         for _ in range(3):
             _, max_attempts = strategy.get_attempt_info()
-            assert max_attempts == MAX_TRANSCRIPTION_RETRIES
+            assert max_attempts == settings.max_transcription_retries
             strategy.evaluate_result("bad", "Error")
 
 
@@ -273,11 +282,11 @@ class TestEdgeCases:
         assert strategy.current_attempt == 0
 
     def test_reset_after_max_retries(
-        self, strategy: TranscriptionRetryStrategy
+        self, strategy: TranscriptionRetryStrategy, settings: WhisperSettings
     ) -> None:
         """最大リトライ後にリセットすると再利用可能"""
         # 最大までリトライ
-        for _ in range(MAX_TRANSCRIPTION_RETRIES - 1):
+        for _ in range(settings.max_transcription_retries - 1):
             strategy.evaluate_result("bad", "Error")
 
         result = strategy.evaluate_result("bad", "Error")
@@ -286,22 +295,22 @@ class TestEdgeCases:
         # リセット
         strategy.reset()
         assert strategy.current_attempt == 0
-        assert strategy.get_current_params() == WHISPER_PARAMS[0]
+        assert strategy.get_current_params() == settings.params[0].model_dump()
 
         # 再度使用可能
         result = strategy.evaluate_result("bad", "Error")
         assert result.action == TranscriptionAction.RETRY
 
     def test_params_progression_matches_whisper_params(
-        self, strategy: TranscriptionRetryStrategy
+        self, strategy: TranscriptionRetryStrategy, settings: WhisperSettings
     ) -> None:
-        """パラメータの進行はWHISPER_PARAMSに一致"""
-        for i in range(MAX_TRANSCRIPTION_RETRIES - 1):
-            assert strategy.get_current_params() == WHISPER_PARAMS[i]
+        """パラメータの進行はsettings.paramsに一致"""
+        for i in range(settings.max_transcription_retries - 1):
+            assert strategy.get_current_params() == settings.params[i].model_dump()
             strategy.evaluate_result("bad", "Error")
 
         # 最後のパラメータ
         assert (
             strategy.get_current_params()
-            == WHISPER_PARAMS[MAX_TRANSCRIPTION_RETRIES - 1]
+            == settings.params[settings.max_transcription_retries - 1].model_dump()
         )

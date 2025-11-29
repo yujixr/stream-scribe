@@ -1,0 +1,11 @@
+# Stream Scribe Settings
+#
+# このファイルでデフォルト設定を上書きできます。
+# 設定項目の詳細は stream_scribe/domain/settings.py を参照してください。
+#
+# 例:
+# [whisper]
+# model = "mlx-community/whisper-large-v3-turbo"
+#
+# [summary]
+# trigger_threshold = 800

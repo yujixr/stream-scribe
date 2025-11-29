@@ -13,17 +13,14 @@ import mlx_whisper  # type: ignore[import-untyped]
 import numpy as np
 
 from stream_scribe.domain import (
+    CoreSettings,
     MessageLevel,
     MessagePostedEvent,
     SegmentTranscribedEvent,
     TranscriptionSegment,
+    WhisperSettings,
     message_posted,
     segment_transcribed,
-)
-from stream_scribe.domain.constants import (
-    SAMPLE_RATE,
-    WHISPER_MODEL,
-    WHISPER_PARAMS,
 )
 
 from .filters import HallucinationFilter
@@ -43,28 +40,31 @@ class Transcriber(threading.Thread):
     def __init__(
         self,
         hallucination_filter: HallucinationFilter,
-        model_name: str = WHISPER_MODEL,
+        core_settings: CoreSettings,
+        whisper_settings: WhisperSettings,
     ) -> None:
         super().__init__(daemon=True)
         self.queue: queue.Queue[tuple[np.ndarray, datetime, datetime]] = queue.Queue()
         self.running = True
         self._processing = False  # 現在処理中かどうか
-        self.model_name = model_name
+        self.core_settings = core_settings
+        self.whisper_settings = whisper_settings
         self.hallucination_filter = hallucination_filter  # 幻覚フィルター
 
         message_posted.send(
             None,
             event=MessagePostedEvent(
-                message=f"Loading Whisper model: {model_name}",
+                message=f"Loading Whisper model: {whisper_settings.model}",
                 level=MessageLevel.INFO,
             ),
         )
 
         # モデルを事前読み込み（仮音声で初期化）
-        dummy_audio = np.zeros(SAMPLE_RATE, dtype=np.float32)  # 1秒の無音
+        dummy_audio = np.zeros(core_settings.sample_rate, dtype=np.float32)  # 1秒の無音
         try:
+            initial_params = whisper_settings.params[0].model_dump()
             mlx_whisper.transcribe(
-                dummy_audio, path_or_hf_repo=self.model_name, **WHISPER_PARAMS[0]
+                dummy_audio, path_or_hf_repo=whisper_settings.model, **initial_params
             )
             message_posted.send(
                 None,
@@ -124,7 +124,7 @@ class Transcriber(threading.Thread):
             recording_start: 録音開始時刻
             recording_end: 録音終了時刻
         """
-        strategy = TranscriptionRetryStrategy()
+        strategy = TranscriptionRetryStrategy(self.whisper_settings)
         processing_start = time.time()
 
         while True:
@@ -133,7 +133,7 @@ class Transcriber(threading.Thread):
             # Whisper推論
             try:
                 result = mlx_whisper.transcribe(
-                    audio, path_or_hf_repo=self.model_name, **params
+                    audio, path_or_hf_repo=self.whisper_settings.model, **params
                 )
             except Exception as e:
                 # mlx_whisper自体のエラー（構造的な問題）は再試行しない
@@ -152,7 +152,7 @@ class Transcriber(threading.Thread):
             segments = segments_raw if isinstance(segments_raw, list) else []
 
             # 音声の長さを計算
-            audio_duration = len(audio) / SAMPLE_RATE
+            audio_duration = len(audio) / self.core_settings.sample_rate
 
             # メトリクスを抽出（フィルタリングと分析用）
             metrics = self.hallucination_filter.extract_metrics(segments)

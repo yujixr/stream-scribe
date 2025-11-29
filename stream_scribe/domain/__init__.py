@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Stream Scribe - Domain Layer
-ドメイン層：ビジネスロジック、エンティティ、定数
+ドメイン層：ビジネスロジック、エンティティ、設定
 """
 
 # モデルとデータ構造
@@ -25,8 +25,20 @@ from .events import (
     summary_generated,
 )
 
-# 定数モジュール
-from . import constants
+# 設定スキーマ（Pydantic）
+from .settings import (
+    AppSettings,
+    AudioSettings,
+    CoreSettings,
+    HallucinationFilterSettings,
+    Settings,
+    SummarySettings,
+    VADDetectionSettings,
+    VADModelSettings,
+    VADSettings,
+    WhisperParamsSettings,
+    WhisperSettings,
+)
 
 __all__ = [
     # モデル
@@ -44,6 +56,16 @@ __all__ = [
     "message_posted",
     "segment_transcribed",
     "summary_generated",
-    # 定数モジュール
-    "constants",
+    # 設定
+    "AppSettings",
+    "AudioSettings",
+    "CoreSettings",
+    "HallucinationFilterSettings",
+    "Settings",
+    "SummarySettings",
+    "VADDetectionSettings",
+    "VADModelSettings",
+    "VADSettings",
+    "WhisperParamsSettings",
+    "WhisperSettings",
 ]

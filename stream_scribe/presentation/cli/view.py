@@ -18,21 +18,12 @@ from stream_scribe.domain import (
     MessageLevel,
     MessagePostedEvent,
     SegmentTranscribedEvent,
+    Settings,
     SummaryGeneratedEvent,
     TranscriptionSegment,
     message_posted,
     segment_transcribed,
     summary_generated,
-)
-from stream_scribe.domain.constants import (
-    CHUNK_MS,
-    MIN_SPEECH_CHUNKS,
-    PREROLL_SEC,
-    STATUS_UPDATE_INTERVAL_SEC,
-    STATUS_UPDATE_MANAGER_SHUTDOWN_TIMEOUT_SEC,
-    VAD_END_THRESHOLD,
-    VAD_START_THRESHOLD,
-    WHISPER_MODEL,
 )
 from stream_scribe.infrastructure.ai import LLMClient, RealtimeSummarizer
 from stream_scribe.infrastructure.audio import AudioStream
@@ -53,10 +44,14 @@ class CLIView:
     # ANSIエスケープコード削除用パターン（コンパイル済み）
     _ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
 
-    def __init__(self) -> None:
+    def __init__(self, settings: Settings) -> None:
         """
         CLIViewの初期化とSignalサブスクリプション設定
+
+        Args:
+            settings: アプリケーション設定
         """
+        self.settings = settings
         self.lock = threading.Lock()  # スレッド間の同期用ロック
         self.session_start_time = time.time()  # セッション開始時刻
 
@@ -126,7 +121,9 @@ class CLIView:
         """UI更新を停止して表示をクリア"""
         self._running = False
         if self._update_thread and self._update_thread.is_alive():
-            self._update_thread.join(timeout=STATUS_UPDATE_MANAGER_SHUTDOWN_TIMEOUT_SEC)
+            self._update_thread.join(
+                timeout=self.settings.app.status_update_manager_shutdown_timeout_sec
+            )
 
         # 表示をクリア
         with self.lock:
@@ -155,12 +152,12 @@ class CLIView:
                     summary_buffer_count=self._summarizer.buffer_char_count
                     if self._summarizer
                     else 0,
-                    summary_threshold=self._summarizer.trigger_threshold
+                    summary_threshold=self._summarizer.settings.trigger_threshold
                     if self._summarizer
                     else 0,
                 )
 
-            time.sleep(STATUS_UPDATE_INTERVAL_SEC)
+            time.sleep(self.settings.app.status_update_interval_sec)
 
     # ========== 表示メソッド ==========
 
@@ -190,7 +187,9 @@ class CLIView:
                 bar_width - probability_bar_length
             )
             probability_color = (
-                Fore.GREEN if probability >= VAD_START_THRESHOLD else Fore.CYAN
+                Fore.GREEN
+                if probability >= self.settings.vad.detection.start_threshold
+                else Fore.CYAN
             )
             vad_section = f"{probability_color}VAD:[{probability_bar}] {probability:.2f}{Style.RESET_ALL}"
 
@@ -201,7 +200,7 @@ class CLIView:
                     f"{Fore.RED}● REC [{recording_elapsed:.1f}s]{Style.RESET_ALL}"
                 )
             elif speech_chunks > 0:
-                speech_duration = speech_chunks * CHUNK_MS / 1000.0
+                speech_duration = speech_chunks * self.settings.core.chunk_ms / 1000.0
                 status_parts.append(f"🎧 Listening (speech: {speech_duration:.2f}s)")
             else:
                 status_parts.append("🎧 Listening (idle)")
@@ -313,6 +312,14 @@ class CLIView:
         # LLMバックエンド情報を取得
         llm_info = llm_client.get_backend_info() if llm_client else "Disabled"
 
+        # 設定値を取得
+        vad_start = self.settings.vad.detection.start_threshold
+        vad_end = self.settings.vad.detection.end_threshold
+        whisper_model = self.settings.whisper.model
+        min_speech_chunks = self.settings.vad.detection.min_speech_chunks
+        chunk_ms = self.settings.core.chunk_ms
+        preroll_sec = self.settings.vad.detection.preroll_sec
+
         banner = f"""
 {Fore.CYAN}╔══════════════════════════════════════════╗
 ║       Stream Scribe v{version_display:<18}  ║
@@ -320,11 +327,11 @@ class CLIView:
 ╚══════════════════════════════════════════╝{Style.RESET_ALL}
 
 {Fore.YELLOW}Config:{Style.RESET_ALL}
-  - VAD: Silero VAD v5 (ONNX) [Hysteresis: {VAD_START_THRESHOLD}/{VAD_END_THRESHOLD}]
-  - Whisper: {WHISPER_MODEL}
+  - VAD: Silero VAD v5 (ONNX) [Hysteresis: {vad_start}/{vad_end}]
+  - Whisper: {whisper_model}
   - Structurer: {llm_info}
-  - Min Speech: {MIN_SPEECH_CHUNKS} chunks ({MIN_SPEECH_CHUNKS * CHUNK_MS}ms)
-  - Preroll: {PREROLL_SEC}s
+  - Min Speech: {min_speech_chunks} chunks ({min_speech_chunks * chunk_ms}ms)
+  - Preroll: {preroll_sec}s
 
 """
         sys.stdout.write(banner)

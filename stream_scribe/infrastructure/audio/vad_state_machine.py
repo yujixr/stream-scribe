@@ -6,13 +6,7 @@ VAD（音声活動検出）の状態遷移ロジックを管理するモジュ�
 
 from enum import Enum, auto
 
-from stream_scribe.domain.constants import (
-    MAX_SILENCE_CHUNKS,
-    MIN_SPEECH_CHUNKS,
-    VAD_END_THRESHOLD,
-    VAD_IDLE_RESET_CHUNKS,
-    VAD_START_THRESHOLD,
-)
+from stream_scribe.domain import VADDetectionSettings
 
 
 class VadAction(Enum):
@@ -29,11 +23,12 @@ class VadStateMachine:
     VAD状態遷移を管理するステートマシン
 
     ヒステリシス制御により発話区間を安定検出:
-    - 録音開始: 高い閾値 (VAD_START_THRESHOLD) で誤検知防止
-    - 録音終了: 低い閾値 (VAD_END_THRESHOLD) で語尾切れ防止
+    - 録音開始: 高い閾値 (start_threshold) で誤検知防止
+    - 録音終了: 低い閾値 (end_threshold) で語尾切れ防止
     """
 
-    def __init__(self) -> None:
+    def __init__(self, settings: VADDetectionSettings) -> None:
+        self.settings = settings
         self.is_recording = False
         self.speech_chunks = 0
         self.silence_chunks = 0
@@ -59,9 +54,9 @@ class VadStateMachine:
         """ヒステリシス制御で閾値を切り替え"""
         if self.is_recording:
             # 録音中は低い閾値（語尾保護）
-            return probability >= VAD_END_THRESHOLD
+            return probability >= self.settings.end_threshold
         # 待機中は高い閾値（ノイズ対策）
-        return probability >= VAD_START_THRESHOLD
+        return probability >= self.settings.start_threshold
 
     def _handle_speech(self) -> VadAction:
         """音声検出時の処理"""
@@ -69,7 +64,10 @@ class VadStateMachine:
         self.idle_silence_chunks = 0
         self.speech_chunks += 1
 
-        if not self.is_recording and self.speech_chunks >= MIN_SPEECH_CHUNKS:
+        if (
+            not self.is_recording
+            and self.speech_chunks >= self.settings.min_speech_chunks
+        ):
             self.is_recording = True
             return VadAction.START_RECORDING
 
@@ -81,12 +79,12 @@ class VadStateMachine:
 
         if self.is_recording:
             self.silence_chunks += 1
-            if self.silence_chunks >= MAX_SILENCE_CHUNKS:
+            if self.silence_chunks >= self.settings.max_silence_chunks:
                 self._reset_recording_state()
                 return VadAction.STOP_RECORDING
         else:
             self.idle_silence_chunks += 1
-            if self.idle_silence_chunks >= VAD_IDLE_RESET_CHUNKS:
+            if self.idle_silence_chunks >= self.settings.idle_reset_chunks:
                 self.idle_silence_chunks = 0
                 return VadAction.RESET_VAD_MODEL
 

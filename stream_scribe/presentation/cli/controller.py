@@ -11,14 +11,18 @@ import time
 import traceback
 from collections.abc import Callable
 
-from stream_scribe.domain import MessageLevel, MessagePostedEvent, message_posted
-from stream_scribe.domain.constants import INPUT_POLL_INTERVAL_SEC
+from stream_scribe.domain import (
+    MessageLevel,
+    MessagePostedEvent,
+    message_posted,
+)
 from stream_scribe.infrastructure.ai import ClaudeClient
 from stream_scribe.infrastructure.audio import (
     AudioSource,
     FileAudioSource,
     MicrophoneAudioSource,
 )
+from stream_scribe.infrastructure.config import load_settings
 from stream_scribe.presentation.app import StreamScribeApp
 
 from .view import CLIView
@@ -47,6 +51,7 @@ class CLIController:
         self.device_id = device_id
         self.file_path = file_path
         self.no_summary = no_summary
+        self.settings = load_settings()
 
         self.app: StreamScribeApp | None = None
         self.view: CLIView | None = None
@@ -59,7 +64,7 @@ class CLIController:
             SystemExit: エラー発生時
         """
         # 1. CLIView作成（Signal受信準備）
-        self.view = CLIView()
+        self.view = CLIView(settings=self.settings)
 
         # 2. LLMクライアント初期化
         llm_client = None
@@ -67,7 +72,9 @@ class CLIController:
         if not self.no_summary:
             api_key = os.getenv("ANTHROPIC_API_KEY")
             if api_key:
-                llm_client = ClaudeClient(api_key=api_key)
+                llm_client = ClaudeClient(
+                    api_key=api_key, settings=self.settings.summary
+                )
             else:
                 should_warn_api_key = True  # 警告はバナー表示後に送る
 
@@ -88,7 +95,9 @@ class CLIController:
         audio_source = self._create_audio_source()
 
         # 6. StreamScribeApp作成
-        self.app = StreamScribeApp(llm_client=llm_client, audio_source=audio_source)
+        self.app = StreamScribeApp(
+            llm_client=llm_client, audio_source=audio_source, settings=self.settings
+        )
 
         # 7. UI更新開始
         self.view.start(
@@ -179,9 +188,15 @@ class CLIController:
             AudioSource: ファイル入力またはマイク入力
         """
         if self.file_path:
-            return FileAudioSource(file_path=self.file_path)
+            return FileAudioSource(
+                core_settings=self.settings.core, file_path=self.file_path
+            )
         else:
-            return MicrophoneAudioSource(device_id=self.device_id)
+            return MicrophoneAudioSource(
+                core_settings=self.settings.core,
+                audio_settings=self.settings.audio,
+                device_id=self.device_id,
+            )
 
     def _wait_for_exit_signal(
         self, stop_condition: Callable[[], bool] | None = None
@@ -203,7 +218,7 @@ class CLIController:
             # 標準入力の監視（Ctrl-D検出用）
             if sys.stdin.isatty():
                 ready, _, _ = select.select(
-                    [sys.stdin], [], [], INPUT_POLL_INTERVAL_SEC
+                    [sys.stdin], [], [], self.settings.app.input_poll_interval_sec
                 )
                 if ready:
                     try:
@@ -213,7 +228,7 @@ class CLIController:
                     except EOFError:
                         raise
             else:
-                time.sleep(INPUT_POLL_INTERVAL_SEC)
+                time.sleep(self.settings.app.input_poll_interval_sec)
 
         return True
 

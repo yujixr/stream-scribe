@@ -12,18 +12,21 @@ if "mlx" not in sys.modules:
 if "mlx_whisper" not in sys.modules:
     sys.modules["mlx_whisper"] = MagicMock()
 
+from stream_scribe.domain import HallucinationFilterSettings
 from stream_scribe.infrastructure.ml.filters import HallucinationFilter
 
 
 @pytest.fixture
 def filter_instance() -> HallucinationFilter:
     """一般的な禁止フレーズを持つHallucinationFilterを作成"""
-    banned_phrases = [
-        "ご視聴ありがとうございました",
-        "チャンネル登録",
-        "高評価",
-    ]
-    return HallucinationFilter(banned_phrases)
+    settings = HallucinationFilterSettings(
+        banned_phrases=[
+            "ご視聴ありがとうございました",
+            "チャンネル登録",
+            "高評価",
+        ]
+    )
+    return HallucinationFilter(settings)
 
 
 class TestBannedPhrases:

@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from anthropic import Anthropic
 from anthropic.types import TextBlock
 
-from stream_scribe.domain.constants import CLAUDE_MODEL, SUMMARY_MAX_TOKENS
+from stream_scribe.domain import SummarySettings
 
 
 class LLMClient(ABC):
@@ -27,7 +27,7 @@ class LLMClient(ABC):
         system_prompt: str,
         user_prompt: str,
         temperature: float = 0.0,
-        max_tokens: int = SUMMARY_MAX_TOKENS,
+        max_tokens: int | None = None,
     ) -> str | None:
         """
         LLM APIでテキストを生成
@@ -67,14 +67,14 @@ class ClaudeClient(LLMClient):
     - API通信の抽象化
     """
 
-    def __init__(self, api_key: str, model: str = CLAUDE_MODEL) -> None:
+    def __init__(self, api_key: str, settings: SummarySettings) -> None:
         """
         Args:
             api_key: Anthropic APIキー
-            model: 使用するClaudeモデル名（デフォルト: CLAUDE_MODEL）
+            settings: サマリー設定（モデル名、最大トークン数など）
         """
         self.api_key = api_key
-        self.model = model
+        self.settings = settings
         self.client = Anthropic(api_key=api_key)
 
     def __call__(
@@ -82,7 +82,7 @@ class ClaudeClient(LLMClient):
         system_prompt: str,
         user_prompt: str,
         temperature: float = 0.0,
-        max_tokens: int = SUMMARY_MAX_TOKENS,
+        max_tokens: int | None = None,
     ) -> str | None:
         """
         Claude APIでテキストを生成
@@ -100,8 +100,8 @@ class ClaudeClient(LLMClient):
             Exception: API呼び出しエラー
         """
         message = self.client.messages.create(
-            model=self.model,
-            max_tokens=max_tokens,
+            model=self.settings.model,
+            max_tokens=max_tokens or self.settings.max_tokens,
             temperature=temperature,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
@@ -121,4 +121,4 @@ class ClaudeClient(LLMClient):
         Returns:
             str: バックエンド情報（例: "Claude (claude-3-5-haiku-20241022)"）
         """
-        return f"Claude ({self.model})"
+        return f"Claude ({self.settings.model})"

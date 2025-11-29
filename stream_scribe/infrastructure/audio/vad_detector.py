@@ -10,8 +10,13 @@ import numpy as np
 import onnxruntime as ort  # type: ignore[import-untyped]
 import requests
 
-from stream_scribe.domain import MessageLevel, MessagePostedEvent, message_posted
-from stream_scribe.domain.constants import MODEL_PATH, SAMPLE_RATE, SILERO_MODEL_URL
+from stream_scribe.domain import (
+    CoreSettings,
+    MessageLevel,
+    MessagePostedEvent,
+    VADModelSettings,
+    message_posted,
+)
 
 
 class VADDetector:
@@ -24,12 +29,21 @@ class VADDetector:
     - モデル自動ダウンロード
     """
 
-    def __init__(self, model_path: Path = MODEL_PATH, auto_download: bool = True):
+    def __init__(
+        self,
+        core_settings: CoreSettings,
+        vad_model_settings: VADModelSettings,
+        auto_download: bool = True,
+    ):
         """
         Args:
-            model_path: ONNXモデルのパス
+            core_settings: コア設定（サンプルレート）
+            vad_model_settings: VADモデル設定
             auto_download: モデルが存在しない場合に自動ダウンロードするか
         """
+        self.core_settings = core_settings
+        self.vad_model_settings = vad_model_settings
+
         message_posted.send(
             None,
             event=MessagePostedEvent(
@@ -38,19 +52,19 @@ class VADDetector:
         )
 
         # モデルの自動ダウンロード
-        if auto_download and not model_path.exists():
-            self._download_model(model_path)
+        if auto_download and not vad_model_settings.model_path.exists():
+            self._download_model(vad_model_settings.model_path, vad_model_settings.url)
 
         # ONNX Runtimeセッション（CPU最適化）
         self.session = ort.InferenceSession(
-            str(model_path), providers=["CPUExecutionProvider"]
+            str(vad_model_settings.model_path), providers=["CPUExecutionProvider"]
         )
 
         # LSTM内部状態の初期化（batch=1, hidden=128）
         self.reset_states()
 
         # サンプルレート（ONNXモデルは16000固定）
-        self._sr = np.array(SAMPLE_RATE, dtype=np.int64)
+        self._sr = np.array(core_settings.sample_rate, dtype=np.int64)
 
         message_posted.send(
             None,
@@ -60,7 +74,7 @@ class VADDetector:
         )
 
     @staticmethod
-    def _download_model(model_path: Path) -> None:
+    def _download_model(model_path: Path, url: str) -> None:
         """Silero VADモデルを自動ダウンロード"""
         message_posted.send(
             None,
@@ -70,7 +84,7 @@ class VADDetector:
         )
         model_path.parent.mkdir(parents=True, exist_ok=True)
 
-        response = requests.get(SILERO_MODEL_URL, stream=True)
+        response = requests.get(url, stream=True)
         response.raise_for_status()
 
         with open(model_path, "wb") as f:

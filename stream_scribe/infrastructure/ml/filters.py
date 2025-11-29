@@ -8,22 +8,7 @@ import re
 from collections.abc import Sequence
 from typing import Any
 
-from stream_scribe.domain.constants import (
-    CONTEXTLESS_GREETING_PHRASES,
-    GREETING_LONG_AUDIO_THRESHOLD,
-    GREETING_LOW_LOGPROB_THRESHOLD,
-    GREETING_SHORT_TEXT_THRESHOLD,
-    HALLUCINATION_EXTREME_LOW_LOGPROB_THRESHOLD,
-    HALLUCINATION_LONG_PATTERN_MAX_LENGTH,
-    HALLUCINATION_LONG_PATTERN_MIN_LENGTH,
-    HALLUCINATION_MIN_CHAR_REPETITION,
-    HALLUCINATION_MIN_LONG_PATTERN_REPETITION,
-    HALLUCINATION_MIN_SHORT_PATTERN_REPETITION,
-    HALLUCINATION_MIN_TOKEN_REPETITION,
-    HALLUCINATION_PATTERN_SEARCH_START_POSITIONS,
-    HALLUCINATION_REPETITION_RATIO_THRESHOLD,
-    HALLUCINATION_SHORT_PATTERN_MAX_LENGTH,
-)
+from stream_scribe.domain import HallucinationFilterSettings
 
 
 class HallucinationFilter:
@@ -42,12 +27,12 @@ class HallucinationFilter:
     # 日本語句読点パターン（コンパイル済み）
     _JAPANESE_PUNCTUATION_PATTERN = re.compile(r"[。、！？\s]+")
 
-    def __init__(self, banned_phrases: list[str]):
+    def __init__(self, settings: HallucinationFilterSettings):
         """
         Args:
-            banned_phrases: 禁止フレーズリスト
+            settings: 幻覚フィルタ設定
         """
-        self.banned_phrases = banned_phrases
+        self.settings = settings
 
     def evaluate_transcription(
         self,
@@ -108,7 +93,7 @@ class HallucinationFilter:
         Returns:
             str | None: 破棄理由 or None
         """
-        for phrase in self.banned_phrases:
+        for phrase in self.settings.banned_phrases:
             if phrase in text:
                 return f"Banned phrase: '{phrase}'"
         return None
@@ -127,7 +112,7 @@ class HallucinationFilter:
             str | None: 破棄理由 or None
         """
         text_len = len(text)
-        if text_len < HALLUCINATION_MIN_CHAR_REPETITION:
+        if text_len < self.settings.min_char_repetition:
             return None
 
         consecutive_count = 1
@@ -136,7 +121,7 @@ class HallucinationFilter:
         for char in text[1:]:
             if char == prev_char:
                 consecutive_count += 1
-                if consecutive_count >= HALLUCINATION_MIN_CHAR_REPETITION:
+                if consecutive_count >= self.settings.min_char_repetition:
                     return f"Character repetition: '{char}' x{consecutive_count}+"
             else:
                 consecutive_count = 1
@@ -163,11 +148,11 @@ class HallucinationFilter:
 
         # パターン長を短いものから長いものへ
         for pattern_len in range(
-            2, min(HALLUCINATION_SHORT_PATTERN_MAX_LENGTH + 1, text_len // 3 + 1)
+            2, min(self.settings.short_pattern_max_length + 1, text_len // 3 + 1)
         ):
             # テキストの最初の数箇所をパターン候補として試行
             max_start = min(
-                HALLUCINATION_PATTERN_SEARCH_START_POSITIONS,
+                self.settings.pattern_search_start_positions,
                 text_len - pattern_len * 3 + 1,
             )
 
@@ -180,11 +165,11 @@ class HallucinationFilter:
 
                 # パターンの出現回数をカウント
                 count = text.count(pattern)
-                if count >= HALLUCINATION_MIN_SHORT_PATTERN_REPETITION:
+                if count >= self.settings.min_short_pattern_repetition:
                     # 繰り返しがテキスト全体の閾値以上を占めるかチェック
                     if (
                         pattern_len * count
-                    ) >= text_len * HALLUCINATION_REPETITION_RATIO_THRESHOLD:
+                    ) >= text_len * self.settings.repetition_ratio_threshold:
                         return f"Pattern repetition: '{pattern[:30]}...' x{count}"
 
         return None
@@ -206,11 +191,11 @@ class HallucinationFilter:
         if text_len < 60:
             return None
 
-        max_pattern_len = min(HALLUCINATION_LONG_PATTERN_MAX_LENGTH, text_len // 3)
+        max_pattern_len = min(self.settings.long_pattern_max_length, text_len // 3)
 
         # 5文字刻みでチェック（計算量削減）
         for pattern_len in range(
-            HALLUCINATION_LONG_PATTERN_MIN_LENGTH, max_pattern_len + 1, 5
+            self.settings.long_pattern_min_length, max_pattern_len + 1, 5
         ):
             # 先頭から1箇所のみチェック
             pattern = text[0:pattern_len]
@@ -218,10 +203,10 @@ class HallucinationFilter:
                 continue
 
             count = text.count(pattern)
-            if count >= HALLUCINATION_MIN_LONG_PATTERN_REPETITION:
+            if count >= self.settings.min_long_pattern_repetition:
                 if (
                     pattern_len * count
-                ) >= text_len * HALLUCINATION_REPETITION_RATIO_THRESHOLD:
+                ) >= text_len * self.settings.repetition_ratio_threshold:
                     return f"Long phrase repetition: '{pattern[:30]}...' x{count}"
 
         return None
@@ -246,13 +231,13 @@ class HallucinationFilter:
         tokens = [t for t in tokens if t.strip()]
 
         # 末尾で同じトークンが連続する場合は幻覚
-        if len(tokens) >= HALLUCINATION_MIN_TOKEN_REPETITION:
+        if len(tokens) >= self.settings.min_token_repetition:
             last_token = tokens[-1]
             if last_token and all(
                 tokens[-i] == last_token
-                for i in range(1, HALLUCINATION_MIN_TOKEN_REPETITION + 1)
+                for i in range(1, self.settings.min_token_repetition + 1)
             ):
-                return f"Token repetition at end: '{last_token}' x{HALLUCINATION_MIN_TOKEN_REPETITION}+"
+                return f"Token repetition at end: '{last_token}' x{self.settings.min_token_repetition}+"
 
         return None
 
@@ -328,7 +313,7 @@ class HallucinationFilter:
 
         # 挨拶フレーズが含まれているかチェック
         matched_greeting = None
-        for phrase in CONTEXTLESS_GREETING_PHRASES:
+        for phrase in self.settings.contextless_greeting_phrases:
             if phrase in normalized_text:
                 matched_greeting = phrase
                 break
@@ -337,17 +322,18 @@ class HallucinationFilter:
             return None
 
         # 条件1: テキストが短文かチェック
-        if len(normalized_text) > GREETING_SHORT_TEXT_THRESHOLD:
+        if len(normalized_text) > self.settings.short_text_threshold:
             return None
 
         # 条件2: 低信頼度または長尺音声中の短文
         is_low_confidence = (
-            avg_logprob is not None and avg_logprob < GREETING_LOW_LOGPROB_THRESHOLD
+            avg_logprob is not None
+            and avg_logprob < self.settings.low_logprob_threshold
         )
         is_short_in_long_audio = (
             audio_duration is not None
-            and audio_duration >= GREETING_LONG_AUDIO_THRESHOLD
-            and len(normalized_text) <= GREETING_SHORT_TEXT_THRESHOLD
+            and audio_duration >= self.settings.long_audio_threshold
+            and len(normalized_text) <= self.settings.short_text_threshold
         )
 
         if is_low_confidence:
@@ -373,7 +359,7 @@ class HallucinationFilter:
         """
         if (
             avg_logprob is not None
-            and avg_logprob < HALLUCINATION_EXTREME_LOW_LOGPROB_THRESHOLD
+            and avg_logprob < self.settings.extreme_low_logprob_threshold
         ):
             return f"Extreme low confidence (avg_logprob={avg_logprob:.2f})"
         return None

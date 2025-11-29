@@ -7,15 +7,11 @@ Stream Scribe - Summarizer Module
 import threading
 import time
 
-from stream_scribe.domain.constants import (
-    SUMMARY_QUEUE_GET_TIMEOUT_SEC,
-    SUMMARY_SILENCE_TIMEOUT_SEC,
-    SUMMARY_TRIGGER_THRESHOLD,
-)
 from stream_scribe.domain import (
     MessageLevel,
     MessagePostedEvent,
     SummaryGeneratedEvent,
+    SummarySettings,
     TranscriptionSession,
     message_posted,
     summary_generated,
@@ -43,6 +39,7 @@ class RealtimeSummarizer(threading.Thread):
     def __init__(
         self,
         llm_client: LLMClient,
+        settings: SummarySettings,
         prompt_strategy: PromptStrategy | None = None,
     ) -> None:
         super().__init__(daemon=True)
@@ -50,6 +47,7 @@ class RealtimeSummarizer(threading.Thread):
 
         # LLMクライアント（DI）
         self.llm_client = llm_client
+        self.settings = settings
 
         # プロンプト戦略（DI: デフォルトはリアルタイム要約）
         self.prompt_strategy = prompt_strategy or RealtimePromptStrategy()
@@ -60,8 +58,6 @@ class RealtimeSummarizer(threading.Thread):
 
         # バッファリング設定
         self.text_buffer: list[str] = []
-        self.trigger_threshold = SUMMARY_TRIGGER_THRESHOLD
-        self.silence_timeout = SUMMARY_SILENCE_TIMEOUT_SEC
         self._buffer_lock = threading.Lock()  # バッファ操作の排他制御
 
         # 処理トリガー用イベント
@@ -98,13 +94,13 @@ class RealtimeSummarizer(threading.Thread):
         char_count = self.buffer_char_count
 
         # 閾値超過チェック
-        if char_count >= self.trigger_threshold:
+        if char_count >= self.settings.trigger_threshold:
             return True
 
         # 無音タイムアウトチェック
         if self.last_segment_time is not None:
             elapsed = time.monotonic() - self.last_segment_time
-            return elapsed >= self.silence_timeout
+            return elapsed >= self.settings.silence_timeout_sec
 
         return False
 
@@ -158,7 +154,7 @@ class RealtimeSummarizer(threading.Thread):
     def run(self) -> None:
         while self.running:
             # 処理トリガーを待つ（終了フラグ確認のためタイムアウト付き）
-            self._trigger_event.wait(timeout=SUMMARY_QUEUE_GET_TIMEOUT_SEC)
+            self._trigger_event.wait(timeout=self.settings.queue_get_timeout_sec)
             self._trigger_event.clear()
 
             # 要約実行判断

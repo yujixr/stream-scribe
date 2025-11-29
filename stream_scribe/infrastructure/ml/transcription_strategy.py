@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any
 
-from stream_scribe.domain.constants import MAX_TRANSCRIPTION_RETRIES, WHISPER_PARAMS
+from stream_scribe.domain import WhisperSettings
 
 
 class TranscriptionAction(Enum):
@@ -43,7 +43,8 @@ class TranscriptionRetryStrategy:
     戦略: 「標準」→「ループ対策」→「バイアス排除」→「厳格化」→「最終フィルタ」
     """
 
-    def __init__(self) -> None:
+    def __init__(self, settings: WhisperSettings) -> None:
+        self.settings = settings
         self.current_attempt = 0
 
     def reset(self) -> None:
@@ -52,7 +53,7 @@ class TranscriptionRetryStrategy:
 
     def get_current_params(self) -> dict[str, Any]:
         """現在の試行に対応するWhisperパラメータを返す"""
-        return WHISPER_PARAMS[self.current_attempt]
+        return self.settings.params[self.current_attempt].model_dump()
 
     def get_attempt_info(self) -> tuple[int, int]:
         """
@@ -61,7 +62,7 @@ class TranscriptionRetryStrategy:
         Returns:
             tuple[int, int]: (現在の試行番号 (1-based), 最大試行回数)
         """
-        return (self.current_attempt + 1, MAX_TRANSCRIPTION_RETRIES)
+        return (self.current_attempt + 1, self.settings.max_transcription_retries)
 
     def evaluate_result(self, text: str, filter_reason: str | None) -> StrategyResult:
         """
@@ -86,7 +87,7 @@ class TranscriptionRetryStrategy:
             )
 
         # リトライ可能な場合
-        if self.current_attempt < MAX_TRANSCRIPTION_RETRIES - 1:
+        if self.current_attempt < self.settings.max_transcription_retries - 1:
             self.current_attempt += 1
             return StrategyResult(
                 action=TranscriptionAction.RETRY,
