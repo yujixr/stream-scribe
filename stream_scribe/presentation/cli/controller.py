@@ -4,7 +4,6 @@ Stream Scribe - CLI Controller
 CLIアプリケーションのコントローラー層：アプリケーションのライフサイクル管理
 """
 
-import os
 import select
 import sys
 import time
@@ -39,18 +38,16 @@ class CLIController:
     - 入力監視と終了シグナル処理
     """
 
-    def __init__(self, device_id: int | None, file_path: str | None, no_summary: bool):
+    def __init__(self, device_id: int | None, file_path: str | None):
         """
         CLIControllerの初期化
 
         Args:
             device_id: オーディオデバイスID（Noneの場合はデフォルト）
             file_path: 音声ファイルパス（Noneの場合はマイク入力）
-            no_summary: サマリー機能を無効化するか
         """
         self.device_id = device_id
         self.file_path = file_path
-        self.no_summary = no_summary
         self.settings = load_settings()
 
         self.app: StreamScribeApp | None = None
@@ -69,8 +66,8 @@ class CLIController:
         # 2. LLMクライアント初期化
         llm_client = None
         should_warn_api_key = False
-        if not self.no_summary:
-            api_key = os.getenv("ANTHROPIC_API_KEY")
+        if self.settings.summary.enabled:
+            api_key = self.settings.app.anthropic_api_key
             if api_key:
                 llm_client = ClaudeClient(
                     api_key=api_key, settings=self.settings.summary
@@ -86,7 +83,7 @@ class CLIController:
             message_posted.send(
                 None,
                 event=MessagePostedEvent(
-                    message="Warning: ANTHROPIC_API_KEY is not set. Summary generation disabled.\n",
+                    message="Warning: Anthropic API key is not set in configuration. Summary generation disabled.\n",
                     level=MessageLevel.WARNING,
                 ),
             )

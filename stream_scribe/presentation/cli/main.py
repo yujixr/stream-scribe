@@ -42,11 +42,6 @@ def parse_args() -> argparse.Namespace:
         metavar="PATH",
         help="Audio file path (mp3/wav) to transcribe instead of microphone input",
     )
-    parser.add_argument(
-        "--no-summary",
-        action="store_true",
-        help="Disable real-time summary generation",
-    )
     return parser.parse_args()
 
 
@@ -80,7 +75,6 @@ def main() -> None:
     controller = CLIController(
         device_id=args.device,
         file_path=args.file,
-        no_summary=args.no_summary,
     )
     controller.run()
 

@@ -343,6 +343,10 @@ class HallucinationFilterSettings(BaseSettings):
 class SummarySettings(BaseSettings):
     """リアルタイム要約設定"""
 
+    enabled: bool = Field(
+        default=True,
+        description="要約機能の有効/無効",
+    )
     model: str = Field(
         default="claude-haiku-4-5-20251001",
         description="要約用モデル名 - Claude Haiku 4.5（高速・低コスト）",
@@ -375,6 +379,13 @@ class SummarySettings(BaseSettings):
 class AppSettings(BaseSettings):
     """アプリケーション全体設定"""
 
+    anthropic_api_key: str | None = Field(
+        default=None,
+        description=(
+            "Anthropic APIキー - 要約機能に必要。"
+            "機密情報のため、バージョン管理に含めず、ソースコードへの直接記述を避けてください。"
+        ),
+    )
     fast_shutdown_timeout_sec: float = Field(
         default=1.0,
         description="高速終了時のタイムアウト（秒）",

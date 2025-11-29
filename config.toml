@@ -2,10 +2,27 @@
 #
 # このファイルでデフォルト設定を上書きできます。
 # 設定項目の詳細は stream_scribe/domain/settings.py を参照してください。
-#
-# 例:
+
+# ====================
+# Application Settings
+# ====================
+[app]
+# Anthropic API Key (required for real-time summarization)
+# 警告: APIキーは機密情報です。このファイルをGitにコミットしないでください。
+# anthropic_api_key = "sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# ====================
+# Summary Settings
+# ====================
+[summary]
+# 要約機能の有効/無効
+# enabled = true
+
+# 要約トリガーの文字数閾値
+# trigger_threshold = 600
+
+# ====================
+# Other Settings
+# ====================
 # [whisper]
 # model = "mlx-community/whisper-large-v3-turbo"
-#
-# [summary]
-# trigger_threshold = 800

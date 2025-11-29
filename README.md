@@ -88,16 +88,16 @@ git clone git@github.com:yujixr/stream-scribe.git
 cd stream-scribe
 uv sync
 
-# 環境変数の設定（会話構造化機能を使用する場合）
-cp .env.example .env
-# .env を編集して ANTHROPIC_API_KEY を設定
+# 設定（会話構造化機能を使用する場合）
+# config.toml を編集して Anthropic API キーを設定
+# [app]
+# anthropic_api_key = "sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 # 実行
 python -m stream_scribe                 # デフォルトマイクで録音開始
 python -m stream_scribe -l              # 利用可能なデバイス一覧
 python -m stream_scribe -d 0            # デバイスID指定
 python -m stream_scribe -f audio.mp3    # ファイルから文字起こし
-python -m stream_scribe --no-summary    # サマリ生成を無効化
 
 # 終了方法
 # Ctrl+C: 正常終了（残り処理を完了してからJSON保存）
@@ -106,12 +106,19 @@ python -m stream_scribe --no-summary    # サマリ生成を無効化
 
 ## 設定
 
-`stream_scribe/domain/constants.py` で各種パラメータを調整できます。
+プロジェクトルートの `config.toml` で各種パラメータを調整できます。
 
-```python
-# VAD感度
-VAD_START_THRESHOLD = 0.5  # 低いほど敏感
-VAD_END_THRESHOLD = 0.3    # 低いほど長く録音
+設定可能な項目の詳細は [stream_scribe/domain/settings.py](stream_scribe/domain/settings.py) を参照してください。
+
+```toml
+# 要約機能の無効化
+[summary]
+enabled = false
+
+# VAD感度の調整
+[vad.detection]
+start_threshold = 0.5  # 低いほど敏感
+end_threshold = 0.3    # 低いほど長く録音
 ```
 
 ## 技術スタック
