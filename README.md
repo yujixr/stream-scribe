@@ -18,11 +18,11 @@ Clean Architectureに基づく3層構造と、blinkerによるイベント駆動
 
 ```
 stream_scribe/
-├── domain/          # ビジネスロジック（モデル、定数、イベント定義）
+├── domain/          # ビジネスロジック（モデル、設定、イベント定義）
 ├── infrastructure/  # 外部連携
 │   ├── audio/       # 音声入力、VAD
 │   ├── ml/          # Whisper文字起こし
-│   ├── ai/          # Claude要約
+│   ├── ai/          # 会話構造化
 │   └── persistence/ # JSONエクスポート
 └── presentation/    # CLI表示
 ```
@@ -68,11 +68,11 @@ MLX Whisper（`whisper-large-v3-turbo`）による高速文字起こし：
 - 文脈なし挨拶検出（低信頼度または長尺音声中の短文挨拶を除外）
 - 低信頼度（avg_logprob < -1.7）フィルタリング
 
-### 会話構造化 (Claude)
+### 会話構造化
 
 リアルタイムで会話をMarkdown形式の議事録に構造化：
 
-- **モデル**：Claude Haiku 4.5（claude-haiku-4-5-20251001）
+- **バックエンド**：Claude API または vLLM（OpenAI互換API）を選択可能
 - **トリガー**：600文字蓄積ごと、または60秒の無音タイムアウトでAPIを呼び出し
 - **ASR誤り訂正**：文脈に基づいて音声認識エラーを自動補正
 - **トピックツリー**：完了/進行中のトピックを階層表示
@@ -89,8 +89,9 @@ cd stream-scribe
 uv sync
 
 # 設定（会話構造化機能を使用する場合）
-# config.toml を編集して Anthropic API キーを設定
-# [app]
+# config.toml を作成し、Claudeの APIキーを設定
+# [summary]
+# backend = "claude"
 # anthropic_api_key = "sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 # 実行
@@ -115,6 +116,12 @@ python -m stream_scribe -f audio.mp3    # ファイルから文字起こし
 [summary]
 enabled = false
 
+# vLLMバックエンドの使用（セルフホストLLM）
+[summary]
+backend = "vllm"
+vllm_base_url = "http://localhost:8000/v1"
+vllm_model = "Qwen/Qwen3-30B-A3B"
+
 # VAD感度の調整
 [vad.detection]
 start_threshold = 0.5  # 低いほど敏感
@@ -128,7 +135,7 @@ end_threshold = 0.3    # 低いほど長く録音
 | 音声入力 | sounddevice |
 | VAD | Silero VAD (ONNX Runtime) |
 | 文字起こし | MLX Whisper |
-| 会話構造化 | Anthropic Claude API |
+| 会話構造化 | Anthropic Claude API または vLLM (OpenAI互換API) |
 
 ## ライセンス
 

@@ -4,19 +4,24 @@
 # 設定項目の詳細は stream_scribe/domain/settings.py を参照してください。
 
 # ====================
-# Application Settings
-# ====================
-[app]
-# Anthropic API Key (required for real-time summarization)
-# 警告: APIキーは機密情報です。このファイルをGitにコミットしないでください。
-# anthropic_api_key = "sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-
-# ====================
 # Summary Settings
 # ====================
 [summary]
 # 要約機能の有効/無効
 # enabled = true
+
+# LLMバックエンド選択: "claude" または "vllm"
+backend = "vllm"
+
+# Claude設定（backend = "claude" の場合に必要）
+# 警告: APIキーは機密情報です。このファイルをGitにコミットしないでください。
+# anthropic_api_key = "sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+# claude_model = "claude-haiku-4-5-20251001"
+
+# vLLM設定（backend = "vllm" の場合に必要）
+# vllm_base_url = "http://localhost:8000/v1"
+# vllm_model = "Qwen/Qwen3-30B-A3B"
+# vllm_api_key = ""  # サーバが認証を要求する場合のみ設定
 
 # 要約トリガーの文字数閾値
 # trigger_threshold = 600

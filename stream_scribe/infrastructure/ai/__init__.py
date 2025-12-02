@@ -8,7 +8,7 @@ AI関連のインフラストラクチャ層（LLM要約生成）
 from .summarizer import RealtimeSummarizer
 
 # LLMクライアント
-from .llm_client import ClaudeClient, LLMClient
+from .llm_client import LLMClient, create_llm_client
 
 # プロンプト
 from . import prompts
@@ -17,8 +17,8 @@ __all__ = [
     # 要約生成
     "RealtimeSummarizer",
     # LLMクライアント
-    "ClaudeClient",
     "LLMClient",
+    "create_llm_client",
     # プロンプトモジュール
     "prompts",
 ]

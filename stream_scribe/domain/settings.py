@@ -4,10 +4,12 @@ Stream Scribe - Settings Schema
 設定のスキーマ定義（Pydanticモデル）
 """
 
+from enum import StrEnum
 from pathlib import Path
 
-from pydantic import Field, computed_field
+from pydantic import Field, computed_field, model_validator
 from pydantic_settings import BaseSettings
+from typing_extensions import Self
 
 # ========================================
 # Private Constants (used multiple times)
@@ -340,6 +342,13 @@ class HallucinationFilterSettings(BaseSettings):
 # ========================================
 # Summary Configuration
 # ========================================
+class LLMBackend(StrEnum):
+    """LLMバックエンドの種類"""
+
+    CLAUDE = "claude"
+    VLLM = "vllm"
+
+
 class SummarySettings(BaseSettings):
     """リアルタイム要約設定"""
 
@@ -347,10 +356,33 @@ class SummarySettings(BaseSettings):
         default=True,
         description="要約機能の有効/無効",
     )
-    model: str = Field(
-        default="claude-haiku-4-5-20251001",
-        description="要約用モデル名 - Claude Haiku 4.5（高速・低コスト）",
+    backend: LLMBackend = Field(
+        default=LLMBackend.CLAUDE,
+        description="LLMバックエンド - claude または vllm",
     )
+    # Claude固有設定
+    anthropic_api_key: str | None = Field(
+        default=None,
+        description="Anthropic APIキー - backend='claude' の場合に必要。",
+    )
+    claude_model: str = Field(
+        default="claude-haiku-4-5-20251001",
+        description="Claude APIモデル名",
+    )
+    # vLLM固有設定
+    vllm_base_url: str | None = Field(
+        default=None,
+        description="vLLMサーバのベースURL（例: http://localhost:8000/v1）",
+    )
+    vllm_model: str | None = Field(
+        default=None,
+        description="vLLMモデル名（例: Qwen/Qwen3-30B-A3B）",
+    )
+    vllm_api_key: str | None = Field(
+        default=None,
+        description="vLLM APIキー（サーバが認証を要求する場合のみ必要）",
+    )
+    # 共通設定
     max_tokens: int = Field(
         default=4096,
         description="最大トークン数 - 全LLM共通の要約用最大トークン数",
@@ -372,6 +404,27 @@ class SummarySettings(BaseSettings):
         description="要約スレッド停止タイムアウト（秒）",
     )
 
+    @model_validator(mode="after")
+    def validate_backend_config(self) -> Self:
+        """バックエンド固有の必須設定を検証"""
+        if not self.enabled:
+            return self
+
+        if self.backend == LLMBackend.CLAUDE:
+            if not self.anthropic_api_key:
+                raise ValueError(
+                    "summary.anthropic_api_key is required when backend='claude'"
+                )
+        elif self.backend == LLMBackend.VLLM:
+            if not self.vllm_base_url:
+                raise ValueError(
+                    "summary.vllm_base_url is required when backend='vllm'"
+                )
+            if not self.vllm_model:
+                raise ValueError("summary.vllm_model is required when backend='vllm'")
+
+        return self
+
 
 # ========================================
 # Application Configuration
@@ -379,13 +432,6 @@ class SummarySettings(BaseSettings):
 class AppSettings(BaseSettings):
     """アプリケーション全体設定"""
 
-    anthropic_api_key: str | None = Field(
-        default=None,
-        description=(
-            "Anthropic APIキー - 要約機能に必要。"
-            "機密情報のため、バージョン管理に含めず、ソースコードへの直接記述を避けてください。"
-        ),
-    )
     fast_shutdown_timeout_sec: float = Field(
         default=1.0,
         description="高速終了時のタイムアウト（秒）",

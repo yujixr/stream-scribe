@@ -15,7 +15,7 @@ from stream_scribe.domain import (
     MessagePostedEvent,
     message_posted,
 )
-from stream_scribe.infrastructure.ai import ClaudeClient
+from stream_scribe.infrastructure.ai import create_llm_client
 from stream_scribe.infrastructure.audio import (
     AudioSource,
     FileAudioSource,
@@ -63,47 +63,32 @@ class CLIController:
         # 1. CLIView作成（Signal受信準備）
         self.view = CLIView(settings=self.settings)
 
-        # 2. LLMクライアント初期化
-        llm_client = None
-        should_warn_api_key = False
-        if self.settings.summary.enabled:
-            api_key = self.settings.app.anthropic_api_key
-            if api_key:
-                llm_client = ClaudeClient(
-                    api_key=api_key, settings=self.settings.summary
-                )
-            else:
-                should_warn_api_key = True  # 警告はバナー表示後に送る
+        # 2. LLMクライアント初期化（設定検証済み）
+        llm_client = (
+            create_llm_client(settings=self.settings.summary)
+            if self.settings.summary.enabled
+            else None
+        )
 
-        # 3. バナー表示（最初に表示）
+        # 3. バナー表示
         self.view.show_banner(llm_client)
 
-        # 4. API keyがない場合は警告を表示
-        if should_warn_api_key:
-            message_posted.send(
-                None,
-                event=MessagePostedEvent(
-                    message="Warning: Anthropic API key is not set in configuration. Summary generation disabled.\n",
-                    level=MessageLevel.WARNING,
-                ),
-            )
-
-        # 5. AudioSource生成
+        # 4. AudioSource生成
         audio_source = self._create_audio_source()
 
-        # 6. StreamScribeApp作成
+        # 5. StreamScribeApp作成
         self.app = StreamScribeApp(
             llm_client=llm_client, audio_source=audio_source, settings=self.settings
         )
 
-        # 7. UI更新開始
+        # 6. UI更新開始
         self.view.start(
             audio_stream=self.app.audio_stream,
             transcriber=self.app.transcriber,
             summarizer=self.app.summarizer,
         )
 
-        # 8. 録音開始
+        # 7. 録音開始
         # 型の絞り込み: 初期化後、self.appは必ずStreamScribeAppインスタンスになる
         app = self.app
         assert app is not None
