@@ -374,8 +374,8 @@ class SummarySettings(BaseSettings):
         default=None,
         description="vLLMサーバのベースURL（例: http://localhost:8000/v1）",
     )
-    vllm_model: str | None = Field(
-        default=None,
+    vllm_model: str = Field(
+        default="Qwen/Qwen3-30B-A3B",
         description="vLLMモデル名（例: Qwen/Qwen3-30B-A3B）",
     )
     vllm_api_key: str | None = Field(
@@ -420,8 +420,6 @@ class SummarySettings(BaseSettings):
                 raise ValueError(
                     "summary.vllm_base_url is required when backend='vllm'"
                 )
-            if not self.vllm_model:
-                raise ValueError("summary.vllm_model is required when backend='vllm'")
 
         return self
 
@@ -432,6 +430,10 @@ class SummarySettings(BaseSettings):
 class AppSettings(BaseSettings):
     """アプリケーション全体設定"""
 
+    save_json: bool = Field(
+        default=True,
+        description="セッション終了時にJSON形式で保存するかどうか",
+    )
     fast_shutdown_timeout_sec: float = Field(
         default=1.0,
         description="高速終了時のタイムアウト（秒）",

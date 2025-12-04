@@ -89,7 +89,7 @@ cd stream-scribe
 uv sync
 
 # 設定（会話構造化機能を使用する場合）
-# config.toml を作成し、Claudeの APIキーを設定
+# config.local.toml を作成し、Claudeの APIキーを設定
 # [summary]
 # backend = "claude"
 # anthropic_api_key = "sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
@@ -107,16 +107,16 @@ python -m stream_scribe -f audio.mp3    # ファイルから文字起こし
 
 ## 設定
 
-プロジェクトルートの `config.toml` で各種パラメータを調整できます。
+設定ファイル（[`config.toml`](config.toml) / `config.local.toml`）で各種パラメータを調整できます。
 
-設定可能な項目の詳細は [stream_scribe/domain/settings.py](stream_scribe/domain/settings.py) を参照してください。
+設定可能な項目の詳細は [`settings.py`](stream_scribe/domain/settings.py) を参照してください。
 
 ```toml
 # 要約機能の無効化
 [summary]
 enabled = false
 
-# vLLMバックエンドの使用（セルフホストLLM）
+# vLLMバックエンド（セルフホストLLM）
 [summary]
 backend = "vllm"
 vllm_base_url = "http://localhost:8000/v1"

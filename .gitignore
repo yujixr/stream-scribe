@@ -176,4 +176,7 @@ pyrightconfig.json
 # setuptools_scm version file
 stream_scribe/_version.py
 
+# Local configuration (contains secrets)
+config.local.toml
+
 # End of https://www.toptal.com/developers/gitignore/api/python

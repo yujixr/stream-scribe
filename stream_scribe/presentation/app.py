@@ -304,12 +304,14 @@ class StreamScribeApp:
         """
         セッションの保存（JSON出力）
         """
-        if self.session.get_total_segments() > 0:
-            output_path = SessionJsonExporter.save_to_file(self.session)
-            message_posted.send(
-                None,
-                event=MessagePostedEvent(
-                    message=f"Transcription saved to: {output_path}",
-                    level=MessageLevel.SUCCESS,
-                ),
-            )
+        if not self.settings.app.save_json or self.session.get_total_segments() == 0:
+            return
+
+        output_path = SessionJsonExporter.save_to_file(self.session)
+        message_posted.send(
+            None,
+            event=MessagePostedEvent(
+                message=f"Transcription saved to: {output_path}",
+                level=MessageLevel.SUCCESS,
+            ),
+        )
