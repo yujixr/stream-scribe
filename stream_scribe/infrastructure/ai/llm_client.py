@@ -6,6 +6,7 @@ LLMクライアントの抽象化とアダプタパターンを提供するモ�
 
 import re
 from abc import ABC, abstractmethod
+from typing import Any
 
 from anthropic import Anthropic
 from anthropic.types import TextBlock
@@ -28,8 +29,8 @@ class LLMClient(ABC):
         self,
         system_prompt: str,
         user_prompt: str,
-        temperature: float = 0.0,
-        top_p: float = 1.0,
+        temperature: float | None = None,
+        top_p: float | None = None,
         max_tokens: int | None = None,
     ) -> str | None:
         """
@@ -39,7 +40,9 @@ class LLMClient(ABC):
             system_prompt: システムプロンプト
             user_prompt: ユーザープロンプト
             temperature: 生成の確率性（0.0=決定論的、1.0=最大ランダム性）
+                Noneの場合は指定しない（各LLMのデフォルト値を使用）
             top_p: nucleus sampling（累積確率がtop_pになるまでのトークンから選択、0.0-1.0）
+                Noneの場合は指定しない（各LLMのデフォルト値を使用）
             max_tokens: 最大トークン数
 
         Returns:
@@ -86,8 +89,8 @@ class ClaudeClient(LLMClient):
         self,
         system_prompt: str,
         user_prompt: str,
-        temperature: float = 0.0,
-        top_p: float = 1.0,
+        temperature: float | None = None,
+        top_p: float | None = None,
         max_tokens: int | None = None,
     ) -> str | None:
         """
@@ -97,7 +100,10 @@ class ClaudeClient(LLMClient):
             system_prompt: システムプロンプト
             user_prompt: ユーザープロンプト
             temperature: 生成の確率性（0.0=決定論的、1.0=最大ランダム性）
+                Noneの場合は指定しない（APIデフォルト値を使用）
             top_p: nucleus sampling（累積確率がtop_pになるまでのトークンから選択、0.0-1.0）
+                Noneの場合は指定しない（APIデフォルト値を使用）
+                ※Anthropic APIではtemperatureとtop_pを同時に指定不可
             max_tokens: 最大トークン数
 
         Returns:
@@ -106,20 +112,25 @@ class ClaudeClient(LLMClient):
         Raises:
             Exception: API呼び出しエラー
         """
-        message = self.client.messages.create(
-            model=self.settings.claude_model,
-            max_tokens=max_tokens or self.settings.max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
-        )
+        # API呼び出しパラメータを構築（Noneは除外）
+        kwargs: dict[str, Any] = {
+            "model": self.settings.claude_model,
+            "max_tokens": max_tokens or self.settings.max_tokens,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_prompt}],
+        }
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        if top_p is not None:
+            kwargs["top_p"] = top_p
+
+        message = self.client.messages.create(**kwargs)
 
         # TextBlockの場合のみtextを取得
-        if message.content and len(message.content) > 0:
-            first_block = message.content[0]
-            if isinstance(first_block, TextBlock):
-                return first_block.text.strip()
+        if message.content and (first_block := message.content[0]):
+            return (
+                first_block.text.strip() if isinstance(first_block, TextBlock) else None
+            )
         return None
 
     def get_backend_info(self) -> str:
@@ -189,8 +200,8 @@ class VLLMClient(LLMClient):
         self,
         system_prompt: str,
         user_prompt: str,
-        temperature: float = 0.0,
-        top_p: float = 1.0,
+        temperature: float | None = None,
+        top_p: float | None = None,
         max_tokens: int | None = None,
     ) -> str | None:
         """
@@ -200,7 +211,9 @@ class VLLMClient(LLMClient):
             system_prompt: システムプロンプト
             user_prompt: ユーザープロンプト
             temperature: 生成の確率性（0.0=決定論的、1.0=最大ランダム性）
+                Noneの場合は指定しない（APIデフォルト値を使用）
             top_p: nucleus sampling（累積確率がtop_pになるまでのトークンから選択、0.0-1.0）
+                Noneの場合は指定しない（APIデフォルト値を使用）
             max_tokens: 最大トークン数
 
         Returns:
@@ -212,22 +225,26 @@ class VLLMClient(LLMClient):
 
         # 設定検証済みのため、vllm_modelは必ず存在する
         assert self.settings.vllm_model is not None
-        response = self.client.chat.completions.create(
-            model=self.settings.vllm_model,
-            max_tokens=max_tokens or self.settings.max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            messages=[
+
+        # API呼び出しパラメータを構築（Noneは除外）
+        kwargs: dict[str, Any] = {
+            "model": self.settings.vllm_model,
+            "max_tokens": max_tokens or self.settings.max_tokens,
+            "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-        )
+        }
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        if top_p is not None:
+            kwargs["top_p"] = top_p
 
-        if response.choices and len(response.choices) > 0:
-            content = response.choices[0].message.content
-            if content:
-                # 思考過程（<think>タグなど）を除外し、markdownブロックのみ抽出
-                return self._extract_markdown_block(content.strip())
+        response = self.client.chat.completions.create(**kwargs)
+
+        # 思考過程（<think>タグなど）を除外し、markdownブロックのみ抽出
+        if response.choices and (content := response.choices[0].message.content):
+            return self._extract_markdown_block(content.strip())
         return None
 
     def get_backend_info(self) -> str:
