@@ -141,7 +141,8 @@ class RealtimeSummarizer(threading.Thread):
             updated_summary = self.llm_client(
                 system_prompt=system_prompt,
                 user_prompt=user_content,
-                temperature=0.0,
+                temperature=self.settings.realtime_temperature,
+                top_p=self.settings.realtime_top_p,
             )
 
             # 内部状態を更新
@@ -210,7 +211,8 @@ class RealtimeSummarizer(threading.Thread):
             final_summary = self.llm_client(
                 system_prompt=system_prompt,
                 user_prompt=user_content,
-                temperature=0.0,
+                temperature=self.settings.final_temperature,
+                top_p=self.settings.final_top_p,
             )
             # 終了時サマリイベントを送信
             if final_summary:

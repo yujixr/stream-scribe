@@ -387,6 +387,22 @@ class SummarySettings(BaseSettings):
         default=4096,
         description="最大トークン数 - 全LLM共通の要約用最大トークン数",
     )
+    realtime_temperature: float = Field(
+        default=0.0,
+        description="リアルタイム要約時のLLM temperature（0.0-1.0）- 0.0で決定論的、高いほど創造的でランダムな出力",
+    )
+    realtime_top_p: float = Field(
+        default=1.0,
+        description="リアルタイム要約時のLLM top_p（0.0-1.0）- nucleus sampling、累積確率がtop_pになるまでのトークンから選択",
+    )
+    final_temperature: float = Field(
+        default=0.0,
+        description="終了時サマリ生成時のLLM temperature（0.0-1.0）- 0.0で決定論的、高いほど創造的でランダムな出力",
+    )
+    final_top_p: float = Field(
+        default=1.0,
+        description="終了時サマリ生成時のLLM top_p（0.0-1.0）- nucleus sampling、累積確率がtop_pになるまでのトークンから選択",
+    )
     trigger_threshold: int = Field(
         default=600,
         description="要約トリガーの文字数閾値",

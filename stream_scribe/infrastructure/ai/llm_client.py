@@ -29,6 +29,7 @@ class LLMClient(ABC):
         system_prompt: str,
         user_prompt: str,
         temperature: float = 0.0,
+        top_p: float = 1.0,
         max_tokens: int | None = None,
     ) -> str | None:
         """
@@ -38,6 +39,7 @@ class LLMClient(ABC):
             system_prompt: システムプロンプト
             user_prompt: ユーザープロンプト
             temperature: 生成の確率性（0.0=決定論的、1.0=最大ランダム性）
+            top_p: nucleus sampling（累積確率がtop_pになるまでのトークンから選択、0.0-1.0）
             max_tokens: 最大トークン数
 
         Returns:
@@ -85,6 +87,7 @@ class ClaudeClient(LLMClient):
         system_prompt: str,
         user_prompt: str,
         temperature: float = 0.0,
+        top_p: float = 1.0,
         max_tokens: int | None = None,
     ) -> str | None:
         """
@@ -94,6 +97,7 @@ class ClaudeClient(LLMClient):
             system_prompt: システムプロンプト
             user_prompt: ユーザープロンプト
             temperature: 生成の確率性（0.0=決定論的、1.0=最大ランダム性）
+            top_p: nucleus sampling（累積確率がtop_pになるまでのトークンから選択、0.0-1.0）
             max_tokens: 最大トークン数
 
         Returns:
@@ -106,6 +110,7 @@ class ClaudeClient(LLMClient):
             model=self.settings.claude_model,
             max_tokens=max_tokens or self.settings.max_tokens,
             temperature=temperature,
+            top_p=top_p,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
@@ -185,6 +190,7 @@ class VLLMClient(LLMClient):
         system_prompt: str,
         user_prompt: str,
         temperature: float = 0.0,
+        top_p: float = 1.0,
         max_tokens: int | None = None,
     ) -> str | None:
         """
@@ -194,6 +200,7 @@ class VLLMClient(LLMClient):
             system_prompt: システムプロンプト
             user_prompt: ユーザープロンプト
             temperature: 生成の確率性（0.0=決定論的、1.0=最大ランダム性）
+            top_p: nucleus sampling（累積確率がtop_pになるまでのトークンから選択、0.0-1.0）
             max_tokens: 最大トークン数
 
         Returns:
@@ -209,6 +216,7 @@ class VLLMClient(LLMClient):
             model=self.settings.vllm_model,
             max_tokens=max_tokens or self.settings.max_tokens,
             temperature=temperature,
+            top_p=top_p,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
