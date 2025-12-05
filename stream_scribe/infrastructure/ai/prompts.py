@@ -6,7 +6,23 @@ LLM API用のプロンプトテンプレートを管理するモジュール
 
 from typing import Protocol
 
-from stream_scribe.domain import TranscriptionSession
+from stream_scribe.domain import TranscriptionSegment, TranscriptionSession
+
+
+def format_segments(segments: list[TranscriptionSegment]) -> str:
+    """
+    セグメントリストをタイムスタンプ付きテキストにフォーマット
+
+    Args:
+        segments: フォーマットするセグメントのリスト
+        start_index: 開始インデックス番号
+
+    Returns:
+        str: フォーマットされたテキスト（改行区切り）
+    """
+    return "\n".join(
+        f"[{seg.start_time.strftime('%H:%M:%S')}] {seg.text}" for seg in segments
+    )
 
 
 class PromptStrategy(Protocol):
@@ -23,7 +39,10 @@ class PromptStrategy(Protocol):
         """システムプロンプトを取得"""
         ...
 
-    def build_user_prompt(self, **kwargs: str | TranscriptionSession) -> str:
+    def build_user_prompt(
+        self,
+        **kwargs: str | None | list[TranscriptionSegment] | TranscriptionSession,
+    ) -> str:
         """ユーザープロンプトを構築"""
         ...
 
@@ -69,26 +88,44 @@ class RealtimePromptStrategy:
 (補正済み発言を時系列で3件程度)
 """
 
-    def build_user_prompt(self, current_summary: str, new_text_chunk: str) -> str:
+    def build_user_prompt(
+        self,
+        previous_summary: str | None,
+        processed_segments: list[TranscriptionSegment] | None,
+        new_segments: list[TranscriptionSegment],
+    ) -> str:
         """
         リアルタイム要約用のユーザープロンプトを構築
 
         Args:
-            current_summary: 現在の議事録（空文字列の場合は初期状態）
-            new_text_chunk: 新しい発言テキスト
+            previous_summary: 前回生成した議事録（Noneの場合は初期状態）
+            processed_segments: 処理済みセグメント（直近N件）
+            new_segments: 未処理の新しいセグメント
 
         Returns:
             str: 構築されたユーザープロンプト
         """
-        # 現在の議事録がない場合の初期値
-        context = current_summary if current_summary else "(まだ議事録はありません)"
+        # 前回の議事録
+        summary_text = (
+            previous_summary if previous_summary else "(まだ議事録はありません)"
+        )
+
+        # 処理済みセグメントをタイムスタンプ付きでフォーマット
+        if processed_segments:
+            processed_text = format_segments(processed_segments)
+            new_text = format_segments(new_segments)
+            # 処理済み + 区切り線 + 未処理
+            transcript = f"{processed_text}\n\n--- ここから新しい発言 ---\n\n{new_text}"
+        else:
+            # 処理済みがなければ未処理のみ
+            transcript = format_segments(new_segments)
 
         return f"""
 【現在の議事録】
-{context}
+{summary_text}
 
-【新しい発言（音声認識生データ・誤字含む）】
-{new_text_chunk}
+【直近の発言テキスト（音声認識生データ・誤字含む）】
+{transcript}
 """
 
 
@@ -147,10 +184,7 @@ class FinalSummaryPromptStrategy:
             str: 構築されたユーザープロンプト
         """
         # 全セグメントをタイムスタンプ付きで時系列順に結合
-        full_transcript = "\n".join(
-            f"[{i + 1}] {segment.start_time.strftime('%H:%M:%S')} {segment.text}"
-            for i, segment in enumerate(session.segments)
-        )
+        full_transcript = format_segments(session.segments)
 
         return f"""
 以下は、会話の全文です（音声認識生データ・誤字含む）。

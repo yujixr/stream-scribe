@@ -395,6 +395,10 @@ class SummarySettings(BaseSettings):
         default=60.0,
         description="無音タイムアウト（最後のセグメント追加から経過秒数）",
     )
+    recent_segments_for_context: int = Field(
+        default=5,
+        description="要約時に文脈として含める処理済みセグメントの件数",
+    )
     queue_get_timeout_sec: float = Field(
         default=1.0,
         description="キュー取得タイムアウト（秒）",

@@ -12,6 +12,7 @@ from stream_scribe.domain import (
     MessagePostedEvent,
     SummaryGeneratedEvent,
     SummarySettings,
+    TranscriptionSegment,
     TranscriptionSession,
     message_posted,
     summary_generated,
@@ -56,9 +57,10 @@ class RealtimeSummarizer(threading.Thread):
         self.current_summary = ""
         self.is_summarizing = False  # LLM要約中フラグ
 
-        # バッファリング設定
-        self.text_buffer: list[str] = []
-        self._buffer_lock = threading.Lock()  # バッファ操作の排他制御
+        # セグメント履歴の保持（要約済み + 未要約）
+        self.summarized_segments: list[TranscriptionSegment] = []
+        self.pending_segments: list[TranscriptionSegment] = []
+        self._segment_lock = threading.Lock()  # セグメント操作の排他制御
 
         # 処理トリガー用イベント
         self._trigger_event = threading.Event()
@@ -66,13 +68,13 @@ class RealtimeSummarizer(threading.Thread):
         # 最後のセグメント追加時刻（無音検出用）
         self.last_segment_time: float | None = None
 
-    def add_segment(self, text: str) -> None:
+    def add_segment(self, segment: TranscriptionSegment) -> None:
         """
-        新しいテキストセグメントを追加
+        新しいセグメントを追加
         """
-        if self.running and text:
-            with self._buffer_lock:
-                self.text_buffer.append(text)
+        if self.running:
+            with self._segment_lock:
+                self.pending_segments.append(segment)
                 self.last_segment_time = time.monotonic()
 
             # 処理トリガーイベントをセット
@@ -80,9 +82,9 @@ class RealtimeSummarizer(threading.Thread):
 
     @property
     def buffer_char_count(self) -> int:
-        """バッファ内の文字数を取得"""
-        with self._buffer_lock:
-            return sum(len(text) for text in self.text_buffer)
+        """未処理セグメントの文字数を取得"""
+        with self._segment_lock:
+            return sum(len(seg.text) for seg in self.pending_segments)
 
     def _should_summarize(self) -> bool:
         """
@@ -106,24 +108,31 @@ class RealtimeSummarizer(threading.Thread):
 
     def _process_buffer(self) -> str | None:
         """
-        バッファテキストを処理してLLM APIで要約を生成
+        未処理セグメントを処理してLLM APIで要約を生成
 
         Returns:
             str | None: 生成された要約 or None
         """
-        # バッファを取得してクリア
-        with self._buffer_lock:
-            if not self.text_buffer:
+        # 未処理セグメントを取得してクリア
+        with self._segment_lock:
+            if not self.pending_segments:
                 return None
 
-            chunk_text = " ".join(self.text_buffer)
-            self.text_buffer.clear()
+            new_segments = self.pending_segments.copy()
+            self.pending_segments.clear()
 
         # プロンプト戦略を使用してプロンプトを構築
+        # 要約済みセグメントから直近N件を取得
+        n = self.settings.recent_segments_for_context
+        summarized_recent = (
+            self.summarized_segments[-n:] if self.summarized_segments else None
+        )
+
         system_prompt = self.prompt_strategy.system_prompt
         user_content = self.prompt_strategy.build_user_prompt(
-            current_summary=self.current_summary,
-            new_text_chunk=chunk_text,
+            previous_summary=self.current_summary if self.current_summary else None,
+            processed_segments=summarized_recent,
+            new_segments=new_segments,
         )
 
         self.is_summarizing = True
@@ -138,6 +147,11 @@ class RealtimeSummarizer(threading.Thread):
             # 内部状態を更新
             if updated_summary:
                 self.current_summary = updated_summary
+                # 要約済みセグメントリストに追加
+                self.summarized_segments.extend(new_segments)
+                # 直近N件のみ保持（メモリ節約）
+                n = self.settings.recent_segments_for_context
+                self.summarized_segments = self.summarized_segments[-n:]
 
             return updated_summary
         except Exception as e:
@@ -175,9 +189,9 @@ class RealtimeSummarizer(threading.Thread):
         """
         self.running = False
 
-        # バッファをクリア（現在の処理を破棄）
-        with self._buffer_lock:
-            self.text_buffer.clear()
+        # 未処理セグメントをクリア（現在の処理を破棄）
+        with self._segment_lock:
+            self.pending_segments.clear()
 
         # イベントをセットして待機中のスレッドを起こす
         self._trigger_event.set()

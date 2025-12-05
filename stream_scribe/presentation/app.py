@@ -153,7 +153,7 @@ class StreamScribeApp:
 
         # 2. 要約スレッドに送信（有効時のみ）
         if self.summarizer:
-            self.summarizer.add_segment(event.segment.text)
+            self.summarizer.add_segment(event.segment)
 
     def _on_summary_generated(
         self, _sender: object, event: SummaryGeneratedEvent
